@@ -49,6 +49,7 @@ import { Class, cssColor, getImgUrl, initStyle, setTitle } from "../root/root";
 
 import initScreenShots, { getWindowInfos } from "../screenShot/screenShot";
 import EdgeWorker from "./edgeWorker?worker";
+import { createInlineOcrTranslate } from "./inlineOcrTranslate";
 
 const screenShots = initScreenShots(
     { c: store.get("额外截屏器.命令"), path: store.get("额外截屏器.位置") },
@@ -705,6 +706,7 @@ function 记忆框选f() {
 
 // 关闭
 async function closeWin() {
+    inlineOcr.clear();
     isShowBars = false;
     showBars(false);
     mainCanvas.width = drawCanvas.width = mainCanvas.width; // 确保清空画布
@@ -717,11 +719,14 @@ async function closeWin() {
     renderSend("clip_close", []);
 }
 
-function runOcr() {
+async function runOcr() {
     const type = ocr引擎.gv;
-    const c = getClipPhoto();
-    renderSend("clip_ocr", [c.toDataURL(), type]);
-    toolsX.close.f();
+    const handled = await inlineOcr.runOcr(type);
+    if (!handled) {
+        const c = getClipPhoto(true);
+        renderSend("clip_ocr", [c.toDataURL(), type]);
+        toolsX.close.f();
+    }
 }
 
 function runSearch() {
@@ -1683,9 +1688,14 @@ function checkTranslator() {
 async function translate() {
     const t = checkTranslator();
     if (!t) return;
+    const mode = toolsX.translate.el.gv || "inline";
+    if (mode === "inline") {
+        await inlineOcr.runTranslate(ocr引擎.gv);
+        return;
+    }
     const display = getNowScreen();
-    const c = getClipPhoto();
-    if (toolsX.translate.el.gv === "ding") {
+    const c = getClipPhoto(true);
+    if (mode === "ding") {
         renderSend("clip_ding", [
             c.toDataURL(),
             "translate",
@@ -1712,7 +1722,7 @@ async function translate() {
                     h: finalRect[3] / ratio,
                 },
                 displayId: nowScreenId,
-                img: getClipPhoto().toDataURL(),
+                img: c.toDataURL(),
             },
         ]);
     toolsX.close.f();
@@ -1835,7 +1845,7 @@ function getClipPhotoSVG() {
     return svgT;
 }
 
-function getClipPhoto() {
+function getClipPhoto(skipInlineOverlay = false) {
     const mainCtx = mainCanvas.getContext("2d")!;
     if (!finalRect) finalRect = [0, 0, mainCanvas.width, mainCanvas.height];
 
@@ -1865,6 +1875,9 @@ function getClipPhoto() {
         0,
         0,
     );
+    if (!skipInlineOverlay) {
+        inlineOcr.drawOntoCanvas(tmpctx);
+    }
     if (!isRect) {
         const ctx = tmpctx;
 
@@ -1972,6 +1985,7 @@ function pointsOutRect(points: point[]) {
 
 // 开始操纵框选
 function clipStart(e: MouseEvent, inRect: boolean) {
+    inlineOcr.clear();
     const p = src2pXY(e2srcPoint(e));
     if (isRect) {
         // 在选区内，则调整，否则新建
@@ -2271,6 +2285,7 @@ function cleanClip() {
 /** 缩放、平移后刷新遮罩和参考线 */
 function refreshClipUi() {
     drawClip();
+    inlineOcr.updatePosition();
     if (nowMouseE) {
         const e = e2srcPoint(nowMouseE);
         ckx(e);
@@ -4008,7 +4023,8 @@ const toolsX: Record<功能, { el: ElType<HTMLElement>; f: () => void }> = {
             iconEl("translate"),
             t("屏幕翻译"),
             [
-                { name: t("贴图"), value: "ding" },
+                { name: t("原地翻译"), value: "inline" },
+                { name: t("贴图翻译"), value: "ding" },
                 { name: t("自动翻译"), value: "live" },
             ],
         ),
@@ -4056,7 +4072,7 @@ toolsX.record.el.on("change", () => {
     toolsX.record.f();
 });
 
-toolsX.translate.el.sv(store.get("屏幕翻译.type"));
+toolsX.translate.el.sv(store.get("屏幕翻译.type") || "inline");
 toolsX.translate.el.on("change", () => {
     store.set("屏幕翻译.type", toolsX.translate.el.gv);
     toolsX.translate.f();
@@ -4680,6 +4696,39 @@ clipLineLayer.add([
     ...clipCkx.map((i) => i.el),
 ]);
 
+const inlineOcr = createInlineOcrTranslate({
+    getFinalRect: () => finalRect,
+    getClipCanvas: () => getClipPhoto(true),
+    src2screenX,
+    src2screenY,
+    openInEditor: () => {
+        const type = ocr引擎.gv;
+        const c = getClipPhoto(true);
+        renderSend("clip_ocr", [c.toDataURL(), type]);
+        toolsX.close.f();
+    },
+});
+
+window.addEventListener(
+    "keydown",
+    (e) => {
+        if (!inlineOcr.isActive()) return;
+        if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            inlineOcr.clear();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+            if (inlineOcr.tryCopySelectedText()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            }
+        }
+    },
+    true,
+);
+
 editor.style({ width: `${window.screen.width / 全局缩放}px` });
 // 第一次截的一定是桌面,所以可提前定义
 mainCanvas.width = drawCanvas.width =
@@ -5094,6 +5143,7 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
     });
 
     setSetting();
+    inlineOcr.clear();
     if (!rectSelect) {
         activeHoverRect = null;
         hoverLayerIndex = 0;
@@ -5657,6 +5707,7 @@ document.onmouseup = (e) => {
 
 hotkeys("s", () => {
     if (drawingMode) return;
+    inlineOcr.clear();
     rectSelect = false;
     activeHoverRect = null;
     edgeKey = "";
@@ -5829,13 +5880,21 @@ document.onmousemove = (e) => {
             const isFontPanel =
                 fontPanelOpen &&
                 fontPanel.el.contains(ev.target as HTMLElement);
+            const isInlineUi =
+                inlineOcr.isActive() &&
+                Boolean(
+                    (ev.target as HTMLElement | null)?.closest(
+                        "#clip_inline_overlay, #clip_inline_bar",
+                    ),
+                );
             mouseBarEl.el.classList.toggle(
                 "mouse_bar_hide",
                 isDrawBar ||
                     isToolBar ||
                     isElementBar ||
                     isColorPopover ||
-                    isFontPanel,
+                    isFontPanel ||
+                    isInlineUi,
             );
 
             // 画板栏移动

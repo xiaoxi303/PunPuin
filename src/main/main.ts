@@ -3482,6 +3482,9 @@ function ensureDefaultOfflineTranslator() {
     if (!store.get("屏幕翻译.语言.to")) {
         store.set("屏幕翻译.语言.to", matchBestLan());
     }
+    if (!store.get("屏幕翻译.type") || store.get("屏幕翻译.type") === "ding") {
+        store.set("屏幕翻译.type", "inline");
+    }
     const theme = store.get("全局.主题");
     if (
         theme?.light?.emphasis === "#D7E3F8" &&

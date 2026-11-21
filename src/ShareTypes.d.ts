@@ -516,7 +516,7 @@ type translateWinType = {
     rect: { x: number; y: number; w: number; h: number };
     dipRect: { x: number; y: number; w: number; h: number };
     displayId: number;
-    type: "live" | "ding";
+    type: "inline" | "live" | "ding";
 };
 
 type myFetch = {

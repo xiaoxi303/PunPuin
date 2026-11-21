@@ -192,18 +192,33 @@ export class FreeTranslator implements TranslatorLike {
 
 export function loadTranslator(
     store: typeof import("../../../lib/store/renderStore")["default"],
+    overrideTo?: string,
 ) {
     const transE = store.get("翻译.翻译器");
+    const lan = store.get("屏幕翻译.语言");
+    const from = lan.from || "auto";
+    const to = overrideTo || lan.to || store.get("语言.语言") || "zh-Hans";
 
-    if (transE.length > 0) {
-        const x = transE[0];
+    const candidates: TranslatorLike[] = [];
+    for (const x of transE) {
         const e = getTranslators(store, x);
-        if (e) {
-            const lan = store.get("屏幕翻译.语言");
-            const to = lan.to || store.get("语言.语言") || "zh-Hans";
-            return (input: string[]) => e.run(input, lan.from || "auto", to);
-        }
+        if (e) candidates.push(e);
     }
+    if (candidates.length === 0) return undefined;
+
+    return async (input: string[]) => {
+        let lastErr: unknown;
+        for (const engine of candidates) {
+            try {
+                return await engine.run(input, from, to);
+            } catch (error) {
+                lastErr = error;
+            }
+        }
+        throw lastErr instanceof Error
+            ? lastErr
+            : new Error("翻译失败，请检查翻译设置或网络");
+    };
 }
 
 export function getTranslators(

@@ -1070,3 +1070,196 @@ body input {
     border-radius: 6px;
     cursor: pointer;
 }
+
+/* 截图原地 OCR 选字 & 原地覆盖翻译层（Snow Shot 风格） */
+#clip_inline_overlay {
+    position: fixed;
+    z-index: 20;
+    display: none;
+    pointer-events: none;
+    overflow: hidden;
+}
+#clip_inline_overlay.active {
+    display: block;
+    pointer-events: auto;
+}
+#clip_inline_content {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+#clip_inline_overlay.comparing #clip_inline_content {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease;
+}
+
+/* OCR 原地透明可选文字框 */
+.inline-ocr-line {
+    position: absolute;
+    box-sizing: border-box;
+    color: transparent;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    white-space: pre;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--clip-border-color) 9%, transparent);
+    border: 1px solid
+        color-mix(in srgb, var(--clip-border-color) 32%, transparent);
+    transition:
+        background-color 0.12s ease,
+        border-color 0.12s ease;
+}
+.inline-ocr-line:hover {
+    background: color-mix(in srgb, var(--clip-border-color) 16%, transparent);
+    border-color: color-mix(in srgb, var(--clip-border-color) 65%, transparent);
+}
+.inline-ocr-line::selection {
+    background: color-mix(in srgb, var(--clip-border-color) 42%, transparent);
+    color: transparent;
+}
+
+/* 翻译原地覆盖块 */
+.inline-tr-block {
+    position: absolute;
+    box-sizing: border-box;
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-weight: 500;
+    line-height: 1.22;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+    animation: inlineFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.inline-tr-block::selection {
+    background: color-mix(in srgb, var(--clip-border-color) 38%, transparent);
+}
+@keyframes inlineFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.985);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* 悬浮控制胶囊栏 */
+#clip_inline_bar {
+    position: fixed;
+    z-index: 105;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: 11px;
+    box-shadow: var(--shadow-lg);
+    font-size: 12.5px;
+    color: var(--font-color);
+    user-select: none;
+    white-space: nowrap;
+}
+#clip_inline_bar.active {
+    display: flex;
+    animation: inlineFadeIn 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#clip_inline_bar .inline-status {
+    font-size: 12px;
+    opacity: 0.85;
+    padding: 0 4px;
+}
+#clip_inline_bar .inline-btn {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 7px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--font-color);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background-color 0.14s ease,
+        border-color 0.14s ease,
+        transform 0.12s ease;
+}
+#clip_inline_bar .inline-btn:hover {
+    background: var(--hover-color);
+}
+#clip_inline_bar .inline-btn:active {
+    transform: scale(0.96);
+}
+#clip_inline_bar .inline-btn-primary {
+    background: var(--emphasis-color);
+    border-color: var(--emphasis-color);
+    color: var(--font-color-emphasis);
+}
+#clip_inline_bar .inline-btn-primary:hover {
+    filter: brightness(1.08);
+    background: var(--emphasis-color);
+}
+#clip_inline_bar .inline-btn-close {
+    width: 26px;
+    padding: 0;
+    font-size: 15px;
+    line-height: 1;
+}
+#clip_inline_bar .inline-lang-select {
+    height: 26px;
+    padding: 0 6px;
+    border-radius: 7px;
+    border: 1px solid var(--border-color);
+    background: var(--bg);
+    color: var(--font-color);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+}
+#clip_inline_bar .inline-spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--emphasis-color) 28%, transparent);
+    border-top-color: var(--emphasis-color);
+    animation: inlineSpin 0.7s linear infinite;
+}
+@keyframes inlineSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 轻提示 Toast */
+#clip_inline_toast {
+    position: fixed;
+    left: 50%;
+    top: 28px;
+    transform: translateX(-50%) translateY(-8px);
+    z-index: 120;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--font-color);
+    box-shadow: var(--shadow-lg);
+    pointer-events: none;
+    opacity: 0;
+    transition:
+        opacity 0.16s ease,
+        transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#clip_inline_toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}

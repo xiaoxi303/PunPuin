@@ -428,7 +428,7 @@ const defaultSetting: setting = {
         },
     },
     屏幕翻译: {
-        type: "ding",
+        type: "inline",
         dTime: 3000,
         color: { bg: "rgb(255,255,255,0.5)", text: "" },
         语言: {
