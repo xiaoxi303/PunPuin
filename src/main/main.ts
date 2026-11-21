@@ -1,0 +1,3749 @@
+/// <reference types="vite/client" />
+
+import { Buffer } from "node:buffer";
+import { exec, execSync } from "node:child_process";
+import {
+    cpSync,
+    existsSync,
+    mkdir,
+    mkdirSync,
+    readdirSync,
+    readFile,
+    readFileSync,
+    rmSync,
+    statSync,
+    writeFile,
+    writeFileSync,
+} from "node:fs";
+import { writeFile as writeFileAsync } from "node:fs/promises";
+import { homedir, release, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import url from "node:url";
+import {
+    app,
+    type BaseWindow,
+    BrowserWindow,
+    ClipboardItem,
+    clipboard,
+    crashReporter,
+    desktopCapturer,
+    dialog,
+    globalShortcut,
+    ipcMain,
+    Menu,
+    type NativeImage,
+    Notification,
+    nativeImage,
+    nativeTheme,
+    screen,
+    session,
+    shell,
+    Tray,
+    type View,
+    WebContentsView,
+} from "electron";
+import minimist from "minimist";
+import main from "xtranslator";
+import { githubMirrorList } from "../../lib/github_mirror";
+import type { RecordRect } from "../../lib/ipc";
+import { mainOn, mainOnReflect, mainSend } from "../../lib/ipc";
+import Store from "../../lib/store/store";
+import time_format from "../../lib/time_format";
+import { lan, t } from "../../lib/translate/translate";
+import { typedEntries } from "../../lib/utils";
+import { getSessionBusPath, isWaylandSession } from "../../lib/wayland";
+import initScreenShots from "../renderer/screenShot/screenShot";
+import type {
+    CaptureSourceInfo,
+    EditToolsType,
+    GithubUrlType,
+    LiveDingData,
+    LongControlHint,
+    LongControlInit,
+    MainWinType,
+    setting,
+    translateWinType,
+    功能,
+} from "../ShareTypes";
+import { initBergamot } from "./bergamot";
+import defaultSetting, { matchBestLan } from "./defaultSetting";
+import { initFreeTranslate } from "./freeTranslate";
+
+const runPath = join(resolve(__dirname, ""), "../../");
+const tmpDir = join(tmpdir(), "eSearch");
+const clipboardDir = join(tmpDir, "clipboard");
+
+/** minimist 解析出的值：参数后没跟值时为 boolean，纯数字会被解析为 number */
+type Argv = Record<string, string | number | boolean | string[] | undefined> & {
+    _: string[];
+};
+
+/**
+ * 读取字符串参数。没传返回 undefined；传了但值不合法时打印提示并返回 undefined。
+ */
+function argString(argv: Argv, ...names: string[]): string | undefined {
+    for (const name of names) {
+        const value = argv[name];
+        if (value === undefined || value === false) continue;
+        if (typeof value === "string") return value;
+        if (typeof value === "number") return String(value);
+        if (Array.isArray(value)) {
+            console.error(`--${name} 只能出现一次`);
+        } else {
+            console.error(`--${name} 需要跟一个值`);
+        }
+    }
+    return undefined;
+}
+
+/** 读取数字参数，不合法时打印提示并返回 undefined */
+function argNumber(argv: Argv, ...names: string[]): number | undefined {
+    const value = argString(argv, ...names);
+    if (value === undefined) return undefined;
+    const n = Number(value);
+    if (Number.isNaN(n)) {
+        console.error(`--${names[0]} 需要跟一个数字`);
+        return undefined;
+    }
+    return n;
+}
+
+/** 参数是否出现过（即使值为 boolean 也表示出现了但没跟值） */
+function argPresent(argv: Argv, ...names: string[]): boolean {
+    return names.some(
+        (name) => argv[name] !== undefined && argv[name] !== false,
+    );
+}
+
+// 自定义用户路径
+try {
+    let preloadConfig = "";
+    try {
+        preloadConfig = readFileSync(join(runPath, "preload_config"))
+            .toString()
+            .trim();
+        if (preloadConfig.startsWith("."))
+            preloadConfig = join(runPath, preloadConfig);
+    } catch (error) {}
+    const portable = "portable";
+    const userDataPath =
+        argString(minimist(process.argv.slice(1)) as Argv, "userData") ||
+        preloadConfig ||
+        (statSync(join(runPath, portable)).isDirectory()
+            ? join(runPath, portable)
+            : "");
+    console.log(`userDataPath: ${userDataPath}`);
+
+    if (userDataPath) {
+        // Electron 只会建默认的那个 userData 目录；setPath 换成自定义路径后目录要自己建，
+        // 否则 Store 第一次写 config.json 就是 ENOENT（一个没被 catch 的启动期异常）。
+        // mkdir 失败就让异常落到下面的 catch：宁可用默认目录，也不要启动就弹错。
+        mkdirSync(userDataPath, { recursive: true });
+        app.setPath("userData", userDataPath);
+    }
+} catch (e) {}
+
+const store = new Store({
+    configPath: join(app.getPath("userData"), "config.json"),
+});
+store.setDefaultData(defaultSetting);
+
+ipcMain.on("store", (e, x) => {
+    if (x.type === "get") {
+        e.returnValue = store.get(x.path);
+    } else if (x.type === "set") {
+        store.set(x.path, x.value);
+    } else if (x.type === "path") {
+        e.returnValue = store.path();
+    } else if (x.type === "getAll") {
+        e.returnValue = store.getAll();
+    } else if (x.type === "setAll") {
+        store.setAll(x.value);
+    }
+});
+
+let /** 是否开启开发模式 */ dev: boolean;
+// 自动开启开发者模式
+if (
+    process.argv.includes("-d") ||
+    import.meta.env.DEV ||
+    process.env.ESEARCH_DEV ||
+    store.get("dev")
+) {
+    dev = true;
+} else {
+    dev = false;
+}
+
+if (dev) {
+    setInterval(() => {
+        const usage = process.memoryUsage();
+        const main = usage.rss / 1024 / 1024;
+        let rander = 0;
+        for (const i of app.getAppMetrics().filter((i) => i.type === "Tab")) {
+            rander += i.memory.workingSetSize;
+        }
+        rander = rander / 1024;
+        console.log(
+            `Memory： ${main.toFixed(7)} + ${rander.toFixed(7)} = ${main + rander}`,
+        );
+    }, 1500);
+}
+
+const logs: {
+    from: "screenShot" | "ding" | "mainWindow" | "translator";
+    message: string;
+    type: "info" | "warning" | "error";
+    lineCount: number;
+}[] = [];
+
+const screenShotArgs = [
+    { c: store.get("额外截屏器.命令"), path: store.get("额外截屏器.位置") },
+    (m: string) =>
+        feedbackUrl({
+            title: "截屏库调用错误",
+            main: "截屏库调用错误",
+            steps: "截屏",
+            more: m,
+        }),
+    t,
+    store.get("使用XDGDesktopPortal"),
+] as const;
+
+const keepClip = store.get("保留截屏窗口");
+
+function mainUrl(fileName: string) {
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+        const mainUrl = `${process.env.ELECTRON_RENDERER_URL}/${fileName}`;
+        return mainUrl;
+    }
+    return join(__dirname, "../renderer", fileName);
+}
+
+/** 加载网页 */
+function rendererPath(
+    window: BrowserWindow,
+    fileName: string,
+    q?: Electron.LoadFileOptions,
+) {
+    rendererPath2(window.webContents, fileName, q ?? {});
+    window.webContents.on("will-navigate", (event) => {
+        event.preventDefault();
+    });
+    window.webContents.setWindowOpenHandler(() => {
+        return { action: "deny" };
+    });
+}
+function rendererPath2(
+    window: Electron.WebContents,
+    fileName: string,
+    q: Electron.LoadFileOptions,
+) {
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+        const x = new url.URL(mainUrl(fileName));
+        if (q) {
+            if (q.search) x.search = q.search;
+            if (q.query) {
+                for (const i in q.query) {
+                    x.searchParams.set(i, q.query[i]);
+                }
+            }
+            if (q.hash) x.hash = q.hash;
+        }
+        window.loadURL(x.toString());
+    } else {
+        window.loadFile(mainUrl(fileName), q);
+    }
+}
+
+if (!store.get("硬件加速")) {
+    app.disableHardwareAcceleration();
+}
+
+/**
+ * 复制选区，存在变化，回调
+ */
+async function copyText(callback: (t: string) => void) {
+    const oClipboard = await clipboard.readText();
+    if (process.platform === "darwin") {
+        exec(
+            `osascript -e 'tell application "System Events"' -e 'delay 0.1' -e 'key code 8 using command down' -e 'end tell'`,
+        );
+    } else if (process.platform === "win32") {
+        exec(`"${join(runPath, "lib/copy.exe")}"`);
+    } else if (process.platform === "linux") {
+        // @ts-ignore
+        exec(store.get("主搜索功能.linux_copy") || "xdotool key ctrl+c");
+    }
+    setTimeout(async () => {
+        const t = await clipboard.readText();
+        let v = "";
+        if (oClipboard !== t) v = t;
+        for (const i of store.get("主搜索功能.自动搜索排除")) {
+            if (t.match(i)) {
+                v = "";
+                break;
+            }
+        }
+        callback(v);
+        await clipboard.writeText(oClipboard);
+    }, 300);
+}
+
+const imageFileRe = /\.(png|jpe?g|webp|bmp|gif|svg|ico|avif|tiff?)$/i;
+
+/** 读取剪贴板中的图片文件路径：支持 text/uri-list 和纯文本路径 */
+async function readImagePathFromClipboard(items: ClipboardItem[]) {
+    async function readText(type: string) {
+        const item = items.find((i) => i.types.includes(type));
+        if (!item) return "";
+        const data = await item.getType(type);
+        if (!("arrayBuffer" in data)) return "";
+        return Buffer.from(await data.arrayBuffer()).toString("utf8");
+    }
+    const text =
+        (await readText("text/uri-list")) ||
+        (await readText("text/plain")) ||
+        (await clipboard.readText());
+    for (const line of text.split(/\r?\n/)) {
+        const value = line.trim().replace(/^["']|["']$/g, "");
+        if (!value || value.startsWith("#")) continue;
+        let path = value;
+        try {
+            if (/^file:/i.test(value)) path = url.fileURLToPath(value);
+        } catch {
+            continue;
+        }
+        if (!imageFileRe.test(path)) continue;
+        try {
+            if (statSync(path).isFile()) return path;
+        } catch {}
+    }
+    return "";
+}
+
+/** 读取剪贴板图片，图片文件路径也会读取（Electron 44 移除了 clipboard.readImage） */
+async function readImageFromClipboard() {
+    const items = await clipboard.read();
+    for (const mime of ["image/png", "image/jpeg"] as const) {
+        const item = items.find((i) => i.types.includes(mime));
+        if (!item) continue;
+        const data = await item.getType(mime);
+        if (!("arrayBuffer" in data)) continue;
+        return nativeImage.createFromBuffer(
+            Buffer.from(await data.arrayBuffer()),
+        );
+    }
+    const path = await readImagePathFromClipboard(items);
+    if (path) {
+        const img = nativeImage.createFromPath(path);
+        if (!img.isEmpty()) return img;
+    }
+    return nativeImage.createEmpty();
+}
+
+const imageExt: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+    "image/gif": "gif",
+    "image/avif": "avif",
+    "image/svg+xml": "svg",
+};
+
+/**
+ * 复制图片为缓存文件，可粘贴到文件夹。
+ * Electron 会把 text/uri-list 映射为系统的文件剪贴板格式。
+ */
+async function writeImageFileToClipboard(buffer: Buffer, type: string) {
+    mkdirSync(clipboardDir, { recursive: true });
+    const file = join(
+        clipboardDir,
+        `eSearch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${imageExt[type] ?? "png"}`,
+    );
+    await writeFileAsync(file, buffer);
+    // 剪贴板只保留当前文件，避免缓存目录堆积
+    for (const name of readdirSync(clipboardDir)) {
+        if (name === basename(file)) continue;
+        try {
+            rmSync(join(clipboardDir, name), { force: true });
+        } catch {}
+    }
+    await clipboard.write([
+        new ClipboardItem({
+            "text/uri-list": url.pathToFileURL(file).href,
+        }),
+    ]);
+}
+
+/** 启动时只清理超过一天的剪贴板缓存，保留当天的文件让剪贴板在重启后仍可粘贴 */
+function cleanClipboardDir() {
+    let names: string[];
+    try {
+        names = readdirSync(clipboardDir);
+    } catch {
+        return;
+    }
+    const expire = Date.now() - 24 * 60 * 60 * 1000;
+    for (const name of names) {
+        const path = join(clipboardDir, name);
+        try {
+            if (statSync(path).mtimeMs < expire) rmSync(path, { force: true });
+        } catch {}
+    }
+}
+
+/** 写入图片到剪贴板（Electron 44 移除了 clipboard.writeImage） */
+async function writeImageToClipboard(image: NativeImage) {
+    const png = image.toPNG();
+    if (store.get("保存.复制为文件")) {
+        await writeImageFileToClipboard(png, "image/png");
+        return;
+    }
+    await clipboard.write([
+        new ClipboardItem({
+            "image/png": new Blob([png], { type: "image/png" }),
+        }),
+    ]);
+}
+
+/** 自动判断选中搜索还是截屏搜索 */
+function autoOpen() {
+    copyText((t) => {
+        if (t) {
+            createMainWindow({ type: "text", content: t });
+        } else {
+            showPhoto();
+        }
+    });
+}
+
+/** 选区搜索 */
+function openSelection() {
+    copyText((t) => {
+        if (t) createMainWindow({ type: "text", content: t });
+    });
+}
+
+/** 剪贴板搜索 */
+async function openClipBoard() {
+    const t =
+        process.platform === "linux" && store.get("主搜索功能.剪贴板选区搜索")
+            ? await clipboard.selection.readText()
+            : await clipboard.readText();
+    createMainWindow({ type: "text", content: t });
+}
+
+// cli参数重复启动;
+const isFirstInstance = app.requestSingleInstanceLock();
+if (!isFirstInstance) {
+    app.quit();
+} else {
+    app.on("second-instance", (_event, commanLine, _workingDirectory) => {
+        argRun(commanLine).catch((err) => {
+            console.error(`命令行执行失败: ${err?.stack ?? err}`);
+        });
+    });
+}
+
+function sleep(time: number) {
+    if (!time) return;
+    return new Promise((rj: (v: boolean) => void) => {
+        setTimeout(() => {
+            rj(true);
+        }, time);
+    });
+}
+
+/**
+ * 根据命令运行
+ * @param {string[]} c 命令
+ */
+async function argRun(c: string[], first?: boolean) {
+    const argv = minimist(c.slice(1)) as Argv;
+
+    const ocrE = store
+        .get("离线OCR")
+        .map((i) => `${i.id}(${i.name})`)
+        .concat(["baidu", "youdao"]);
+    const searchE = ["baidu, yandex, google"];
+
+    function getEngine(e: string | undefined, list: string[], df: string) {
+        if (!e) return df;
+        if (!list.includes(e)) {
+            console.log(`${e} ∉ ${list.join(", ")}`);
+        }
+        return e;
+    }
+
+    if (argv.dev) {
+        dev = true;
+    }
+
+    if (argv.v || argv.version) {
+        console.log(app.getVersion());
+        if (first) app.exit();
+    }
+    if (argv.h || argv.help) {
+        const list: (string | [string | [string, string], number, string])[] = [
+            [["v", "version"], 0, app.getVersion()],
+            [["h", "help"], 0, t("帮助")],
+            ["config", 0, t("打开配置")],
+            ["userData", 0, t("用户数据路径")],
+            "",
+            [["i", "input"], 0, t("输入图片，如果空，则截屏")],
+            ["delay", 0, t("延时截屏")],
+            "",
+            `[${t("动作")}] [i] [more]`,
+            t("动作"),
+            ["c", 0, t("截屏")],
+            [["s", "save"], 0, t("保存到路径或剪贴板")],
+            [["p", "path"], 1, t("保存的路径")],
+            ["n", 1, t("连拍数")],
+            ["dt", 1, t("连拍间隔（ms）")],
+            ["clipborad", 1, t("保存到剪贴板")],
+            [["o", "ocr"], 0, t("文字识别")],
+            ["engine", 1, ocrE.join(", ")],
+            ["[mode]", 1, ""],
+            [["m", "img"], 0, t("以图搜图")],
+            ["engine", 1, searchE.join(", ")],
+            ["[mode]", 1, ""],
+            [["d", "ding"], 0, t("贴图")],
+            [["t", "text"], 0, t("主页面打开文字")],
+            ["[mode]", 1, ""],
+            ["setting", 0, t("设置")],
+            "",
+            t("文字处理模式，不设置则自动判断"),
+            ["trans", 0, t("翻译")],
+            ["search", 0, t("搜索")],
+        ];
+        function add(t: string) {
+            return t.length === 1 ? `-${t}` : t.startsWith("[") ? t : `--${t}`;
+        }
+        const list1: (string | [string, string])[] = list.map((i) => {
+            if (typeof i === "string") {
+                return i;
+            }
+            const t =
+                typeof i[0] === "string"
+                    ? add(i[0])
+                    : i[0].map((x) => add(x)).join(",");
+            return [`${" ".repeat(i[1] * 2)}${t}`, i[2]];
+        });
+        const maxWidth =
+            Math.max(
+                ...list1
+                    .filter((i) => typeof i !== "string")
+                    .map((i) => i[0].length),
+            ) + 8;
+        console.log(
+            list1
+                .map((i) => {
+                    if (typeof i === "string") return i;
+                    return `${i[0]}${" ".repeat(maxWidth - i[0].length)}${i[1]}`;
+                })
+                .join("\n"),
+        );
+        if (first) app.exit();
+    }
+    if (argv.config) {
+        shell.openExternal(join(app.getPath("userData"), "config.json"));
+        if (first) app.exit();
+    }
+
+    const path = argString(argv, "i", "input");
+    if (path === undefined && argPresent(argv, "i", "input")) return;
+    const text = argString(argv, "t", "text");
+    if (text === undefined && argPresent(argv, "t", "text")) return;
+    const engine = argString(argv, "engine");
+    if (engine === undefined && argPresent(argv, "engine")) return;
+
+    async function getImg() {
+        let img: NativeImage | undefined;
+        if (!path) {
+            const screenShots = initScreenShots(...screenShotArgs);
+            await sleep(argNumber(argv, "delay") ?? 0);
+            img = (
+                await (await screenShots()).screen[0].capture()
+            ).toNativeImage();
+        } else {
+            try {
+                img = nativeImage.createFromBuffer(readFileSync(path));
+            } catch (error) {
+                console.error(`读取图片失败 ${path}: ${error}`);
+                return undefined;
+            }
+            if (img.isEmpty()) {
+                console.error(`${path} 不是可识别的图片文件`);
+                return undefined;
+            }
+        }
+        return img;
+    }
+    const textMode: setting["主页面"]["模式"] = argv.trans
+        ? "translate"
+        : argv.search
+          ? "search"
+          : "auto";
+    if (argv.s || argv.save) {
+        const n = argNumber(argv, "n");
+        if (n === undefined && argPresent(argv, "n")) return;
+        const dt = argNumber(argv, "dt") ?? 100;
+
+        const savePath = argString(argv, "p", "path");
+        const sp = !savePath
+            ? checkFile(
+                  join(
+                      store.getString("快速截屏.路径") ||
+                          store.getString("保存.保存路径.图片"),
+                      getFileName(),
+                  ),
+              )
+            : existsSync(savePath) && statSync(savePath).isDirectory()
+              ? checkFile(join(savePath, getFileName()))
+              : savePath;
+
+        if (n) {
+            if (!sp) return;
+            try {
+                mkdirSync(sp, { recursive: true });
+            } catch (error) {}
+            const screenShots = initScreenShots(...screenShotArgs);
+            for (let i = 0; i < n; i++) {
+                setTimeout(async () => {
+                    const image = (
+                        await (await screenShots()).screen[0].capture()
+                    ).toNativeImage();
+                    const buffer = image.toPNG();
+                    const filePath = join(sp, `${i}.png`);
+                    writeFile(filePath, buffer, () => {});
+                }, dt * i);
+            }
+        } else {
+            const img = await getImg();
+            if (!img) return;
+            if (argv.clipboard) {
+                await writeImageToClipboard(img);
+            } else {
+                const file = sp.endsWith(".png") ? sp : `${sp}.png`;
+                mkdirSync(dirname(file), { recursive: true });
+                writeFileSync(file, img.toPNG());
+                console.log(`已保存截图: ${file}`);
+            }
+        }
+    } else if (argv.o || argv.ocr) {
+        const img = await getImg();
+        if (!img) return;
+        createMainWindow({
+            type: "ocr",
+            content: img.toDataURL(),
+            arg0: getEngine(engine, ocrE, store.get("OCR.类型")),
+            mode: textMode,
+        });
+    } else if (argv.d || argv.ding) {
+        const img = await getImg();
+        if (!img) return;
+        ding(img);
+    } else if (argv.m || argv.img) {
+        const img = await getImg();
+        if (!img) return;
+        createMainWindow({
+            type: "image",
+            content: img.toDataURL(),
+            arg0: getEngine(engine, searchE, store.get("以图搜图.引擎")),
+            mode: textMode,
+        });
+    } else if (text !== undefined) {
+        createMainWindow({
+            type: "text",
+            content: text,
+            mode: textMode,
+        });
+    } else if (argv.c) {
+        showPhoto();
+    } else if (argv.setting) {
+        createSettingWindow();
+    } else {
+        const appPath = app.getAppPath();
+        const path = argv._.find(
+            (i) =>
+                i !== appPath &&
+                existsSync(i) &&
+                i.match(
+                    /(\.png)|(\.jpe?g)|(\.svg)|(\.webp)|(\.bmp)|(\.gif)|(\.ico)|(\.tiff?)$/i,
+                ),
+        );
+        if (path) showPhoto(path);
+        else if (
+            !argv.hidden &&
+            !argv.h &&
+            !argv.help &&
+            !argv.v &&
+            !argv.version &&
+            !argv.config
+        ) {
+            createSettingWindow();
+        }
+    }
+}
+
+function rmR(dir_path: string) {
+    try {
+        rmSync(dir_path, { recursive: true });
+    } catch (error) {}
+}
+
+// 快捷键
+const 快捷键函数: Record<keyof setting["快捷键"], () => void> = {
+    自动识别: autoOpen,
+    截屏搜索: showPhoto,
+    选中搜索: openSelection,
+    剪贴板搜索: openClipBoard,
+    快速截屏: quickClip,
+    连拍: async () => {
+        lianPai();
+    },
+    结束广截屏: () => {
+        if (longCompactActive) {
+            requestLongControlStop();
+        } else {
+            mainSend(clipWindow?.webContents, "clip_stop_long", []);
+        }
+    },
+    剪贴板贴图: () => dingFromClipBoard(),
+    主页面: () => createMainWindow({ type: "text", content: "" }),
+};
+
+let contextMenu: Electron.Menu | null = null;
+let tray: Tray | null = null;
+
+/** 图标文件不可用时使用，内嵌 32x32 PNG，保证托盘和窗口始终有图标 */
+const fallbackIcon = nativeImage.createFromBuffer(
+    Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAJEUlEQVR4AcRXfWxVZxn/ve8594OWXgptoRTa8jVYImxOl7GQeNVNM0VZECNzy5wIhVhXUFmGGYZSGQiZbBQwnWTCSOYSI4m6LU6ROZCrEQYsdJOvYgEZApsgg37ee855X3/Pe+8tZcLfntznPOd53+d9fr/n45yCxv/5uimB3but37j60L3zmw8vXrDync0LWtrbFvzoXcqRtgVPH6Ucb2tY00E52dbw4868rDvd1rDuDOVsW8Mz59oW/eR828JnL2xeuP5fix9vvThdYt4s1/8hsLD50APb/vh259Uu+7e+nN3U1Rs29fSjsavXNPb028bugu7qjRq7+w3XI2qu9xX2udbDZ7ffa5p6s2pTVz/2bX/rUue3Wy8/8FESAwRmLTpY8vUnD2y91mte7+6L6vpzQDZnEFqFXGgRGYUgsghFh3B2GClE3BctEohttPMJbV7nIo2+nEJvDnUk8vqj66+8MKvlfEmRyACBslT4YBiZ+b1Zo407DDhNMEPQ0BBU1iPRIBmVB3Kg+efIkbEQsnl/rtPfcD3i+f5A6VzONqRSydk3EHh4+b5R/aHe3Ju1cGARg/BQwENyOCSBiBK6YBoRQWU94n5EP9nP2woRPAT0jaQS9ItI2tnUIdf7GSMw2DjvxSvlQsJVIOjxZmcDU2nkkAuqMaWuBGubJuC3z92B1zZMw2vPTUXr98cxcyB0oMhn6kAUhFxEgE1NlXh1dQ1eeboav24ZiTXzynDbGN/th0QMrUXW2MprV+1DNOEIhAq3hwwURvnMQ5KY+akKTJuUgqeV+DnRihUCwQgUkWwgumCHzFBsgIedN9zZqeOT+OInYwiJFNjI6Wwkcezt4sZlIDS2PhsIuHZMI8a4Y1IZ+nMRHlr2V0yftxP3zNuFR556m/sq3yaCG4KGLGmx/NK+h1ccx4zvHMC9lG+sPo5+DvK0CXGE1oKJIkcS/dYgQFQ3QMBaFRmXCfm78irEYxrZbIQLV4ciMaQWQ0prEU+NYiCV73HBLyIJyVx0yOdEeQ0SpeMweWIl4iM89yYlYjyjgBCWM5LXLKAZIBBZZSWTiFkVg8mmSGR9SIYh9yTDj41L4K7JCdw5kXpinDqGKWN9CEjeDxg7qguf/9wpTJvxH5zp7ZEwkPIHbGGOLZJKBLBWNrTcolBZlwE5CQkh82F3gCtdAUgOAi7rH5+cRNsTdWhdPBYbl9Rgw+LR2Ng0GluWVuMP60Zj1WNlqEj5OHWhHLsOjMf+9mqU2wSudIdwoCw9R43lN4j0IALyGBHcsIQCJpl8qWk/Zi054MDFlvWaCk/43lI+fWcJVn9zKFgsHO8ow+nOEsxceRxfXnWCoNYNYA4G0orANQP5tyBnYQUgKAxUSJqxslHwKVIZaYvhjNBtADwILV7eeRGtO97Hjt2XYK2rKKayRZPHWgKCA2jhV9RAVXB2FD9e9JFK5NgKo7Q74FpgrecIGKv4nquBskvPhZiRykRws1BkEIQGq37Vg5f2+mj9fYBM+7XiFibWKOQkU2KIZj60I4TKIKCEJMC34TqBiPQdCGsnJELRFJc5SYkdWQ9CqIgipz1dgq7ubmQ5K+PHDClu4UpPAAdqbV5z+ouZBwQP8iQkRL4FodVWyk/teh4xYwGPuB0yc7GFhDtRgClNejj6wmh0vFiPg8/XobYq7naC0OLgeyEzNjJoyKmIJMz1zKUyjgTZ8YRrAb/tnE+NiFlHBBcwQ3Bn89vubK5LdXjmlj8Juf6V8zh7leDseW5Q5lL2gJnzj6Mjc8NbAJ/TrTQUBRSlNUE0FJ+hFH8avPGnULyMsWjv7KF0Y9+xa/jl3n/ja+s70LanF4j7MJ4BPAuOFwUUeYZbZzedLbEYWRSFYJbiwKlBEs5WHqDoRm1BjfzVx0/sg82nMKvlNOY+8x6WvXwJb11IQJcOheHwCYgZIGAICIohKUDWi6FcRM3gAqIICigoAm5ZWoXnv1tBk7asK2oKBl3+iFHwRlRRKqBS5VCJOIMLiGRrwe5h+9zh2DZnuFt3pEhOKmM0/RjLETDQUA5EA9qDZP6J25K4e0oSIDkLDcV1GVQULhk2zi4ExLigzIzagRQyN2zD3WMSmF7LOCyka4dvIf78wrtIWu5aokBBKZqqoGVDRGwhB4Wdh7P4zV8u4+DJbiz/xTlYCUYw+AQnmGTmQDyw3JbCAIrCnwOVdW3h/EVzXVOg+DffSqZKQ1Fzge88IP8WkMzFFsYf5jx8b9sHmLPmNH53RLlMhHsxuCGZPIFiz62LYeT1cGS5TrIR/eApgYaWu+d7Hb6voUgASkEx43c44alSHx1bR6Lj55U4uaUKr/5wOHTZcHgVVUAyDpfJRzJ/c9FIXHiqDheX1eH9J+oxLOnj0PnuAbKWvfd8qYLtEGztbr467HseiEzhDEDjpTe6cZilltcNhcvjYdBNMi7qwT23JOMrU/AGvysWh85dw5b2y5AKugr5gBaJmcPi6AjcU692xXz9D6VpKgXRe1ni2c1nMW7eQdR+6wDGzN+P+1ecgAS5WeaWZRUy059tx4jmvRi+ci8q12Rw//Zj2P1BFpK589EW8YTqvKsquWuAwIaltX3lJX5jIuYR3ANvUCyxX16JWKqeUod4eT08/lW7VeYCblkBr7oauqoW3qixUCPHQFVXwiaTkApYbZFMqKhsiFq0Y0ZtH3gxZd7529Na/UYyobfGYxouGJ3lkGHQW027I1PI3PmRu+E5eRvymm8D2ybnC+BI+OpnJ2ZOepOQ7jdAQKyDPx3ZUD0ikS4twcl4UsENC4Nagij2TbSUXwIKiCU5xX0MaDdcEDDxMzznxYA4paxEd1SlbPrcnNuaMOi6gYCs/2ltKvOVGZVTK0fEPpNK6bXDhqndqTKVGVqKTKpUZcooqRKdGSb2UJVJDQWfNdeRSZWozLAhlFLuD9GZ8iTPlnprq8tin100ZdK0o1+YkhGMwaIHG8Xnlrkql2ke/udDq0Yub2+pvu/d5tHpIytq0keW16SP/WBM+tiTlKV16RNL6tIdj9enOxrr052Lxqc7G8anT82fkD792IT0mUcnpP/5yKT7znx14vK/zxq/p2Wq4v82iwjX9X8BAAD//zrALo0AAAAGSURBVAMAz1sSjGRf67cAAAAASUVORK5CYII=",
+        "base64",
+    ),
+);
+
+/** 依次读取可用的图标；文件缺失、损坏或路径打不开时换下一个，全部失败用内置图标 */
+function loadIcon(...paths: string[]) {
+    for (const p of paths) {
+        if (!existsSync(p)) continue;
+        try {
+            const image = nativeImage.createFromPath(p);
+            if (!image.isEmpty()) return image;
+        } catch (error) {
+            console.error(`读取图标失败：${p}`, error);
+        }
+        if (p.toLowerCase().endsWith(".ico")) continue;
+        try {
+            // 路径本身打不开时，直接读文件内容再解码
+            const image = nativeImage.createFromBuffer(readFileSync(p));
+            if (!image.isEmpty()) return image;
+        } catch (error) {
+            console.error(`解码图标失败：${p}`, error);
+        }
+    }
+    console.error(`图标加载失败，使用内置图标：${paths.join("、")}`);
+    return fallbackIcon;
+}
+
+const trayIcons = {
+    macTem: loadIcon(join(runPath, "assets/logo/bw/macIconTemplate.png")),
+    color: loadIcon(join(runPath, "assets/logo/32x32.png")),
+    white: loadIcon(join(runPath, "assets/logo/bw/32x32_white.png")),
+    black: loadIcon(join(runPath, "assets/logo/bw/32x32_black.png")),
+};
+const notifyIcon = loadIcon(join(runPath, "assets/logo/64x64.png"));
+
+app.commandLine.appendSwitch(
+    "enable-experimental-web-platform-features",
+    "enable",
+);
+
+function handleError(e: string) {
+    if (app.isReady()) {
+        const id = dialog.showMessageBoxSync({
+            type: "error",
+            title: t("错误"),
+            message: e,
+            buttons: [t("反馈"), t("复制")],
+        });
+        if (id === 0) {
+            shell.openExternal(feedbackUrl({ title: "主进程错误", main: e }));
+        }
+        if (id === 1) {
+            clipboard.writeText(e);
+        }
+    } else {
+        dialog.showErrorBox(t("错误"), e);
+    }
+}
+
+process.on("uncaughtException", (e) => {
+    handleError(`${e.stack ?? e.name}`);
+});
+
+process.on("unhandledRejection", (e) => {
+    handleError(String(e));
+});
+
+app.whenReady().then(() => {
+    app.setName("PunPun");
+    console.log(`PunPun v${app.getVersion()} 测试版 启动`);
+
+    crashReporter.start({ uploadToServer: false });
+
+    initBergamot((path) => githubUrl(path, "base"));
+    initFreeTranslate();
+
+    fixSettingTree();
+
+    ensureDefaultOfflineTranslator();
+
+    cleanClipboardDir();
+
+    // 初始化语言
+    lan(store.get("语言.语言") || "");
+
+    argRun(process.argv, true).catch((err) => {
+        console.error(`命令行执行失败: ${err?.stack ?? err}`);
+        process.exitCode = 1;
+    });
+
+    if (store.get("托盘") !== "无") {
+        // 托盘
+        try {
+            tray = new Tray(trayIcons.color);
+        } catch (e) {
+            console.error(`托盘创建失败：${e}`);
+        }
+
+        function update() {
+            tray?.setContextMenu(contextMenu);
+        }
+
+        contextMenu = Menu.buildFromTemplate([
+            {
+                label: `${t("自动识别")}`,
+                click: () => {
+                    autoOpen();
+                },
+            },
+            {
+                label: t("截屏搜索"),
+                click: () => {
+                    setTimeout(() => {
+                        showPhoto();
+                    }, store.get("主搜索功能.截屏搜索延迟"));
+                },
+            },
+            {
+                label: t("选中搜索"),
+                click: () => {
+                    openSelection();
+                },
+            },
+            {
+                label: t("剪贴板搜索"),
+                click: () => {
+                    openClipBoard();
+                },
+            },
+            {
+                type: "separator",
+            },
+            {
+                label: t("文字识别（OCR）"),
+                click: () => {
+                    setTimeout(() => {
+                        sendCaptureEvent(undefined, "ocr");
+                    }, store.get("主搜索功能.截屏搜索延迟"));
+                },
+            },
+            {
+                label: t("以图搜图"),
+                click: () => {
+                    setTimeout(() => {
+                        sendCaptureEvent(undefined, "search");
+                    }, store.get("主搜索功能.截屏搜索延迟"));
+                },
+            },
+            {
+                label: t("超级录屏"),
+                click: () => {
+                    createSuperRecorderWindow();
+                },
+            },
+            {
+                type: "separator",
+            },
+            {
+                label: t("浏览器打开"),
+                type: "checkbox",
+                checked: store.get("浏览器中打开"),
+                click: (i) => {
+                    store.set("浏览器中打开", i.checked);
+                    update();
+                },
+            },
+            {
+                type: "separator",
+            },
+            {
+                label: t("从剪贴板贴图"),
+                click: () => {
+                    dingFromClipBoard();
+                },
+            },
+            {
+                type: "separator",
+            },
+            {
+                label: t("主页面模式"),
+                type: "submenu",
+                submenu: [
+                    {
+                        label: t("自动"),
+                        type: "radio",
+                        checked: store.get("主页面.模式") === "auto",
+                        click: () => {
+                            store.set("主页面.模式", "auto");
+                            update();
+                        },
+                    },
+                    {
+                        label: t("搜索"),
+                        type: "radio",
+                        checked: store.get("主页面.模式") === "search",
+                        click: () => {
+                            store.set("主页面.模式", "search");
+                            update();
+                        },
+                    },
+                    {
+                        label: t("翻译"),
+                        type: "radio",
+                        checked: store.get("主页面.模式") === "translate",
+                        click: () => {
+                            store.set("主页面.模式", "translate");
+                            update();
+                        },
+                    },
+                ],
+            },
+            {
+                label: t("复用主页面"),
+                toolTip: t("可加快OCR加载"),
+                type: "checkbox",
+                checked: store.get("主页面.复用"),
+                click: (i) => {
+                    store.set("主页面.复用", i.checked);
+                    update();
+                },
+            },
+            { type: "separator" },
+            {
+                label: t("主页面"),
+                click: () => {
+                    createMainWindow({ type: "text", content: "" });
+                },
+            },
+            {
+                label: t("教程帮助"),
+                click: () => {
+                    createHelpWindow();
+                },
+            },
+            {
+                type: "separator",
+            },
+            ...(dev
+                ? [
+                      {
+                          label: t("退出开发者模式"),
+                          click: () => {
+                              store.set("dev", false);
+                              app.relaunch();
+                              app.exit(0);
+                          },
+                      },
+                  ]
+                : []),
+            {
+                label: t("检查更新"),
+                click: async () => {
+                    checkUpdate(true);
+                },
+            },
+            {
+                label: t("反馈"),
+                click: (_i, win) => {
+                    shell.openExternal(
+                        feedbackUrl({
+                            title: `[${win?.getTitle()?.replace("eSearch - ", "") ?? "……界面"}] 存在……问题`,
+                        }),
+                    );
+                },
+            },
+            {
+                type: "separator",
+            },
+            {
+                label: t("显示主界面"),
+                click: () => {
+                    createSettingWindow();
+                },
+            },
+            {
+                label: t("重启"),
+                click: () => {
+                    app.relaunch();
+                    app.exit(0);
+                },
+            },
+            {
+                label: t("退出"),
+                click: () => {
+                    app.quit();
+                },
+            },
+        ]);
+        tray?.setToolTip(app.getName());
+        if (store.get("点击托盘自动截图")) {
+            tray?.on("click", () => {
+                showPhoto();
+            });
+            tray?.on("right-click", () => {
+                if (contextMenu) tray?.popUpContextMenu(contextMenu);
+            });
+        } else {
+            if (contextMenu) tray?.setContextMenu(contextMenu);
+        }
+    }
+
+    // 启动时提示
+    if (store.get("启动提示"))
+        new Notification({
+            title: app.name,
+            body: `${app.name} ${t("已经在后台启动")}`,
+            icon: notifyIcon,
+        }).show();
+
+    const 快捷键 = store.get("快捷键");
+    for (const [k, m] of typedEntries(快捷键)) {
+        const accel = normalizeAccelerator(m.key || "");
+        if (!accel) continue;
+        if (accel !== m.key) {
+            m.key = accel;
+            store.set("快捷键", 快捷键);
+        }
+        let ok = false;
+        try {
+            ok = globalShortcut.register(accel, () => {
+                快捷键函数[k]();
+            });
+        } catch {
+            ok = false;
+        }
+        if (ok) {
+            registeredHotkeys.set(`快捷键.${k}.key`, accel);
+        } else {
+            console.error(`快捷键注册失败：${k} = ${accel}`);
+            m.key = "";
+            store.set("快捷键", 快捷键);
+        }
+    }
+    const 工具快捷键 = store.get("全局工具快捷键");
+    for (const [k, m] of typedEntries(工具快捷键)) {
+        const accel = normalizeAccelerator(m || "");
+        if (!accel) continue;
+        if (accel !== m) {
+            工具快捷键[k] = accel;
+            store.set("全局工具快捷键", 工具快捷键);
+        }
+        let ok = false;
+        try {
+            ok = globalShortcut.register(accel, () => {
+                sendCaptureEvent(undefined, k as 功能);
+            });
+        } catch {
+            ok = false;
+        }
+        if (ok) {
+            registeredHotkeys.set(`全局工具快捷键.${k}`, accel);
+        } else {
+            console.error(`全局工具快捷键注册失败：${k} = ${accel}`);
+            工具快捷键[k] = "";
+            store.set("全局工具快捷键", 工具快捷键);
+        }
+    }
+
+    // tmp目录
+    if (!existsSync(tmpDir)) mkdir(tmpDir, () => {});
+    if (keepClip) {
+        clipWindow = createClipWindow();
+    } else {
+        new BrowserWindow({ show: false });
+    }
+
+    nativeTheme.themeSource = store.get("全局.深色模式");
+
+    // 菜单栏设置
+    setMenu();
+
+    setTray();
+});
+
+function setTray() {
+    if (!tray) return;
+    const setImage = (image: NativeImage | null) => {
+        if (image) tray?.setImage(image);
+    };
+    const i = store.get("托盘");
+    if (i === "彩色") {
+        setImage(trayIcons.color);
+    }
+    if (i === "白") {
+        setImage(trayIcons.white);
+    }
+    if (i === "黑") {
+        setImage(trayIcons.black);
+    }
+    if (i === "跟随系统" || i === "跟随系统反") {
+        if (isMac) setImage(trayIcons.macTem);
+    }
+    if (i === "跟随系统") {
+        setImage(
+            nativeTheme.shouldUseDarkColors ? trayIcons.black : trayIcons.white,
+        );
+    }
+    if (i === "跟随系统反") {
+        setImage(
+            nativeTheme.shouldUseDarkColors ? trayIcons.white : trayIcons.black,
+        );
+    }
+}
+
+const isMac = process.platform === "darwin";
+
+function setMenu() {
+    const menuTemplate = [
+        ...(isMac
+            ? [
+                  {
+                      label: app.name,
+                      submenu: [
+                          { label: `${t("关于")} ${app.name}`, role: "about" },
+                          { type: "separator" },
+                          {
+                              label: t("设置"),
+                              click: () => {
+                                  createSettingWindow();
+                              },
+                              accelerator: "CmdOrCtrl+,",
+                          },
+                          { type: "separator" },
+                          { label: t("服务"), role: "services" },
+                          { type: "separator" },
+                          { label: `${t("隐藏")} ${app.name}`, role: "hide" },
+                          { label: t("隐藏其他"), role: "hideOthers" },
+                          { label: t("全部显示"), role: "unhide" },
+                          { type: "separator" },
+                          { label: `退出 ${app.name}`, role: "quit" },
+                      ],
+                  },
+              ]
+            : []),
+        {
+            label: t("文件"),
+            submenu: [
+                {
+                    label: t("设置"),
+                    click: () => {
+                        createSettingWindow();
+                    },
+                    accelerator: "CmdOrCtrl+,",
+                },
+                {
+                    id: "close",
+                    label: t("关闭"),
+                    role: "close",
+                    accelerator: "CmdOrCtrl+W",
+                },
+            ],
+        },
+        {
+            label: t("视图"),
+            submenu: [
+                { label: t("重新加载"), role: "reload" },
+                { label: t("强制重载"), role: "forceReload" },
+                { label: t("开发者工具"), role: "toggleDevTools" },
+                { type: "separator" },
+                { label: t("实际大小"), role: "resetZoom", accelerator: "" },
+                { label: t("放大"), role: "zoomIn" },
+                { label: t("缩小"), role: "zoomOut" },
+                { type: "separator" },
+                { label: t("全屏"), role: "togglefullscreen" },
+            ],
+        },
+        {
+            label: t("窗口"),
+            submenu: [
+                { label: t("最小化"), role: "minimize" },
+                { label: t("关闭"), role: "close" },
+                ...(isMac
+                    ? [
+                          { type: "separator" },
+                          { label: t("置于最前面"), role: "front" },
+                          { type: "separator" },
+                          { label: t("窗口"), role: "window" },
+                      ]
+                    : []),
+            ],
+        },
+        {
+            label: t("帮助"),
+            role: "help",
+            submenu: [
+                {
+                    label: t("教程帮助"),
+                    click: () => {
+                        createHelpWindow();
+                    },
+                },
+            ],
+        },
+    ] as Electron.MenuItemConstructorOptions[];
+    const menu = Menu.buildFromTemplate(menuTemplate);
+    Menu.setApplicationMenu(menu);
+}
+
+app.on("will-quit", () => {
+    globalShortcut.unregisterAll();
+    rmR(tmpDir);
+});
+
+function feedbackUrl(op?: {
+    title?: string;
+    main?: string;
+    steps?: string;
+    expected?: string;
+    more?: string;
+}) {
+    const url = new URL("https://github.com/xiaoxi303/PunPuin/issues/new");
+    url.searchParams.append("title", op?.title || "...存在...的错误");
+    url.searchParams.append(
+        "body",
+        [
+            op?.main || "",
+            `版本：PunPun v${app.getVersion()} 测试版`,
+            `系统：${process.platform} ${release()} (${process.arch})`,
+        ]
+            .filter(Boolean)
+            .join("\n\n"),
+    );
+    return url.toString();
+}
+
+function feedbackUrl2(op?: { title?: string; main?: string }) {
+    const url = new URL("https://github.com/xiaoxi303/PunPuin/issues/new");
+    if (op?.title) url.searchParams.append("title", op.title);
+    url.searchParams.append(
+        "body",
+        [
+            op?.main || "",
+            `版本：PunPun v${app.getVersion()} 测试版`,
+            `系统：${process.platform} ${release()} (${process.arch})`,
+        ]
+            .filter(Boolean)
+            .join("\n\n"),
+    );
+    return url.toString();
+}
+
+const theIcon = loadIcon(
+    process.platform === "win32"
+        ? join(runPath, "assets/logo/icon.ico")
+        : join(runPath, "assets/logo/1024x1024.png"),
+    join(runPath, "assets/logo/64x64.png"),
+);
+
+const baseWinConfig: () => Electron.BrowserWindowConstructorOptions = () => {
+    const bg = nativeTheme.shouldUseDarkColors
+        ? store.get("全局.主题.dark.bg")
+        : store.get("全局.主题.light.bg");
+    return {
+        icon: theIcon,
+        autoHideMenuBar: true,
+        backgroundColor: bg,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            sandbox: false,
+        },
+    };
+};
+
+mainOn("dialogMessage", ([arg0]) => {
+    const id = dialog.showMessageBoxSync(arg0);
+    return id;
+});
+
+function pushLog(op: (typeof logs)[0]) {
+    if (logs.length > 50) {
+        logs.shift();
+    }
+    logs.push(op);
+}
+
+// 截屏窗口
+let clipWindow: BrowserWindow | null = null;
+let clipWindowLoaded = false;
+const getClipWin = async () => {
+    if (clipWindowLoaded && !clipWindow?.isDestroyed())
+        return clipWindow as BrowserWindow;
+    if (!clipWindow || clipWindow.isDestroyed())
+        clipWindow = createClipWindow();
+
+    return new Promise((re: (v: BrowserWindow) => void) => {
+        clipWindow?.webContents.once("did-finish-load", () => {
+            clipWindowLoaded = true;
+            return re(clipWindow as BrowserWindow);
+        });
+    });
+};
+/** 初始化截屏后台窗口 */
+function createClipWindow() {
+    const _clipWindow = new BrowserWindow({
+        icon: theIcon,
+        width: screen.getPrimaryDisplay().workAreaSize.width,
+        height: screen.getPrimaryDisplay().workAreaSize.height,
+        show: false,
+        alwaysOnTop: !dev, // 为了方便调试，调试模式就不居上了
+        fullscreenable: true,
+        transparent: true,
+        frame: false,
+        resizable: process.platform === "linux", // gnome下为false时无法全屏
+        skipTaskbar: true,
+        autoHideMenuBar: true,
+        movable: false,
+        enableLargerThanScreen: true, // mac
+        hasShadow: false,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            backgroundThrottling: false,
+            zoomFactor: store.get("全局.缩放") || 1.0,
+        },
+    });
+
+    if (!dev) _clipWindow.setAlwaysOnTop(true, "screen-saver");
+
+    rendererPath(_clipWindow, "capture.html");
+
+    if (dev) _clipWindow.webContents.openDevTools();
+
+    _clipWindow.webContents.on("render-process-gone", (_e, d) => {
+        console.log(d);
+        closeLongControl();
+        const id = dialog.showMessageBoxSync({
+            message: t("截屏程序崩溃，是否重启？"),
+            buttons: [t("重启"), t("退出应用")],
+            defaultId: 0,
+            cancelId: 1,
+            detail: JSON.stringify(d),
+        });
+        if (id === 0) exitFullScreen();
+        if (id === 1) app.exit();
+    });
+    _clipWindow.webContents.once("did-finish-load", () => {
+        clipWindowLoaded = true;
+    });
+    _clipWindow.webContents.on("console-message", (d) => {
+        if (d.level !== "debug")
+            pushLog({
+                from: "screenShot",
+                lineCount: d.lineNumber,
+                type: d.level,
+                message: d.message,
+            });
+    });
+    _clipWindow.on("closed", () => {
+        closeLongControl();
+    });
+    return _clipWindow;
+}
+
+// 紧凑长截屏控制窗
+const LONG_CONTROL_HEADER = 36;
+const LONG_CONTROL_PAD = 6;
+const LONG_CONTROL_MIN_PREVIEW = 160;
+const LONG_CONTROL_MARGIN = 12;
+const LONG_CONTROL_MIN_WIDTH = 240;
+const LONG_CONTROL_MAX_WIDTH = 360;
+const LONG_CONTROL_BUTTON_WIDTH = 240;
+const LONG_CONTROL_BUTTON_HEIGHT = 42;
+const LONG_CONTROL_BUTTON_HEIGHT_HINT = 58;
+
+type LongControlPlacement = {
+    preview: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    maxHeight: number;
+    hint?: LongControlHint;
+};
+
+type LongControlInfo = {
+    displayId: number;
+    width: number;
+    height: number;
+    maxHeight: number;
+    preview: boolean;
+    wayland: boolean;
+    workArea: { x: number; y: number; width: number; height: number };
+};
+
+let longControlWindow: BrowserWindow | null = null;
+let longControlPhase: "idle" | "positioning" | "running" | "finishing" = "idle";
+let longControlInfo: LongControlInfo | null = null;
+let longCompactActive = false;
+
+function longControlPreviewHeight(
+    width: number,
+    imageW: number,
+    imageH: number,
+) {
+    const contentWidth = Math.max(1, width - LONG_CONTROL_PAD * 2);
+    const imageHeight = Math.max(1, (imageH * contentWidth) / imageW);
+    return (
+        LONG_CONTROL_HEADER +
+        LONG_CONTROL_PAD * 2 +
+        Math.max(LONG_CONTROL_MIN_PREVIEW, imageHeight)
+    );
+}
+
+function displayDirection(
+    from: Electron.Display,
+    to: Electron.Display,
+): "left" | "right" | "up" | "down" | "other" {
+    const fx = from.bounds.x + from.bounds.width / 2;
+    const fy = from.bounds.y + from.bounds.height / 2;
+    const tx = to.bounds.x + to.bounds.width / 2;
+    const ty = to.bounds.y + to.bounds.height / 2;
+    const dx = tx - fx;
+    const dy = ty - fy;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return "other";
+    if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? "right" : "left";
+    return dy > 0 ? "down" : "up";
+}
+
+function directionText(
+    direction: "left" | "right" | "up" | "down" | "other",
+    screen = false,
+) {
+    if (screen) {
+        if (direction === "left") return t("拖到左侧屏幕");
+        if (direction === "right") return t("拖到右侧屏幕");
+        if (direction === "up") return t("拖到上方屏幕");
+        if (direction === "down") return t("拖到下方屏幕");
+        return t("拖到其他屏幕");
+    }
+    if (direction === "left") return t("拖到选区左侧");
+    if (direction === "right") return t("拖到选区右侧");
+    if (direction === "up") return t("拖到选区上方");
+    if (direction === "down") return t("拖到选区下方");
+    return t("拖到选区外");
+}
+
+function longControlPlacement(
+    display: Electron.Display,
+    rect: [number, number, number, number],
+    ratio: number,
+    preview?: { w: number; h: number },
+): LongControlPlacement {
+    const work = display.workArea;
+    const margin = LONG_CONTROL_MARGIN;
+    const wayland = isWaylandSession();
+    const sel = {
+        x: display.bounds.x + rect[0] / ratio,
+        y: display.bounds.y + rect[1] / ratio,
+        w: rect[2] / ratio,
+        h: rect[3] / ratio,
+    };
+    const selRight = sel.x + sel.w;
+    const selBottom = sel.y + sel.h;
+    const rightSpace = work.x + work.width - selRight - margin;
+    const leftSpace = sel.x - work.x - margin;
+
+    if (
+        preview &&
+        preview.w > 0 &&
+        preview.h > 0 &&
+        (rightSpace >= LONG_CONTROL_MIN_WIDTH ||
+            leftSpace >= LONG_CONTROL_MIN_WIDTH)
+    ) {
+        const side = rightSpace >= leftSpace ? "right" : "left";
+        const space = side === "right" ? rightSpace : leftSpace;
+        const width = Math.round(
+            Math.max(
+                LONG_CONTROL_MIN_WIDTH,
+                Math.min(LONG_CONTROL_MAX_WIDTH, space),
+            ),
+        );
+        const x = Math.round(
+            side === "right" ? selRight + margin : sel.x - width - margin,
+        );
+        const y = work.y + margin;
+        const maxHeight = Math.max(
+            LONG_CONTROL_BUTTON_HEIGHT_HINT,
+            work.height - margin * 2,
+        );
+        const height = Math.min(
+            maxHeight,
+            longControlPreviewHeight(width, preview.w, preview.h),
+        );
+        return {
+            preview: true,
+            x,
+            y,
+            width,
+            height: Math.round(height),
+            maxHeight,
+            hint: wayland
+                ? {
+                      text: directionText(side),
+                      subtext: t("标题栏贴住屏幕顶部"),
+                      arrow: side,
+                  }
+                : undefined,
+        };
+    }
+
+    const width = LONG_CONTROL_BUTTON_WIDTH;
+    const height = wayland
+        ? LONG_CONTROL_BUTTON_HEIGHT_HINT
+        : LONG_CONTROL_BUTTON_HEIGHT;
+    const clampX = (v: number) =>
+        Math.round(
+            Math.max(
+                work.x + margin,
+                Math.min(work.x + work.width - width - margin, v),
+            ),
+        );
+    const clampY = (v: number) =>
+        Math.round(
+            Math.max(
+                work.y + margin,
+                Math.min(work.y + work.height - height - margin, v),
+            ),
+        );
+    const centerX = clampX(sel.x + sel.w / 2 - width / 2);
+    const centerY = clampY(sel.y + sel.h / 2 - height / 2);
+    const candidates: {
+        side: "left" | "right" | "up" | "down";
+        x: number;
+        y: number;
+    }[] = [
+        { side: "down", x: centerX, y: Math.round(selBottom + margin) },
+        { side: "right", x: Math.round(selRight + margin), y: centerY },
+        { side: "up", x: centerX, y: Math.round(sel.y - height - margin) },
+        { side: "left", x: Math.round(sel.x - width - margin), y: centerY },
+    ];
+    const fits = (p: { x: number; y: number }) =>
+        p.x >= work.x + margin &&
+        p.y >= work.y + margin &&
+        p.x + width <= work.x + work.width - margin &&
+        p.y + height <= work.y + work.height - margin;
+    const found = candidates.find(fits);
+    if (found) {
+        return {
+            preview: false,
+            x: found.x,
+            y: found.y,
+            width,
+            height,
+            maxHeight: work.height - margin * 2,
+            hint: wayland
+                ? {
+                      text: directionText(found.side),
+                      arrow: found.side,
+                  }
+                : undefined,
+        };
+    }
+
+    const other = screen.getAllDisplays().find((d) => d.id !== display.id);
+    if (other) {
+        const direction = displayDirection(display, other);
+        return {
+            preview: false,
+            x: other.workArea.x + margin,
+            y: other.workArea.y + margin,
+            width,
+            height,
+            maxHeight: other.workArea.height - margin * 2,
+            hint: wayland
+                ? {
+                      text: directionText(direction, true),
+                      arrow: direction,
+                  }
+                : undefined,
+        };
+    }
+
+    // 四周和别的屏幕都没有位置时，贴选区底边放。
+    // 每帧底部的控制窗会被后面的画面覆盖，最后一帧截取前会隐藏它，
+    // 和覆盖模式里结束按钮的处理方式一致。
+    const x = Math.round(
+        Math.max(
+            work.x + margin,
+            Math.min(
+                work.x + work.width - width - margin,
+                sel.x + sel.w / 2 - width / 2,
+            ),
+        ),
+    );
+    const y = Math.round(
+        Math.max(
+            work.y + margin,
+            Math.min(
+                work.y + work.height - height - margin,
+                selBottom - height,
+            ),
+        ),
+    );
+    return {
+        preview: false,
+        x,
+        y,
+        width,
+        height,
+        maxHeight: work.height - margin * 2,
+        hint: wayland
+            ? {
+                  text: t("拖到选区底部"),
+                  subtext: t("结束时自动隐藏"),
+                  arrow: "down",
+              }
+            : undefined,
+    };
+}
+
+function closeLongControl() {
+    const win = longControlWindow;
+    longControlWindow = null;
+    longControlPhase = "idle";
+    longControlInfo = null;
+    longCompactActive = false;
+    if (win && !win.isDestroyed()) {
+        win.close();
+    }
+}
+
+function requestLongControlStop() {
+    if (!longCompactActive || longControlPhase === "finishing") return;
+    longControlPhase = "finishing";
+    const win = longControlWindow;
+    if (win && !win.isDestroyed()) win.hide();
+    setTimeout(() => {
+        if (clipWindow && !clipWindow.isDestroyed()) {
+            mainSend(clipWindow.webContents, "clip_stop_long", []);
+        }
+    }, 100);
+}
+
+function updateLongControlHeight(preview: { w: number; h: number }) {
+    const win = longControlWindow;
+    const info = longControlInfo;
+    if (!win || win.isDestroyed() || !info?.preview) return;
+    if (preview.w <= 0 || preview.h <= 0) return;
+
+    let maxHeight = info.maxHeight;
+    if (!info.wayland) {
+        const [, y] = win.getPosition();
+        maxHeight = Math.max(
+            LONG_CONTROL_BUTTON_HEIGHT_HINT,
+            info.workArea.y + info.workArea.height - LONG_CONTROL_MARGIN - y,
+        );
+    }
+    const height = Math.round(
+        Math.min(
+            maxHeight,
+            longControlPreviewHeight(info.width, preview.w, preview.h),
+        ),
+    );
+    if (height <= info.height + 8) return;
+    info.height = height;
+    if (info.wayland) {
+        win.setSize(info.width, height);
+    } else {
+        const [x, y] = win.getPosition();
+        win.setBounds({ x, y, width: info.width, height });
+    }
+}
+
+function createLongControlWindow(data: {
+    displayId: number;
+    rect: [number, number, number, number];
+    ratio: number;
+    preview?: { data: string; w: number; h: number };
+}) {
+    closeLongControl();
+    longCompactActive = true;
+    const display =
+        screen.getAllDisplays().find((d) => d.id === data.displayId) ??
+        screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const wayland = isWaylandSession();
+    const placement = longControlPlacement(
+        display,
+        data.rect,
+        data.ratio,
+        data.preview,
+    );
+    longControlPhase = "positioning";
+    longControlInfo = {
+        displayId: display.id,
+        width: placement.width,
+        height: placement.height,
+        maxHeight: placement.maxHeight,
+        preview: placement.preview,
+        wayland,
+        workArea: {
+            x: display.workArea.x,
+            y: display.workArea.y,
+            width: display.workArea.width,
+            height: display.workArea.height,
+        },
+    };
+
+    const win = new BrowserWindow({
+        x: placement.x,
+        y: placement.y,
+        width: placement.width,
+        height: placement.height,
+        show: false,
+        frame: false,
+        transparent: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        autoHideMenuBar: true,
+        hasShadow: false,
+        resizable: true,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            backgroundThrottling: false,
+        },
+    });
+    longControlWindow = win;
+    if (!dev) win.setAlwaysOnTop(true, "screen-saver");
+    rendererPath(win, "longControl.html");
+    if (dev) win.webContents.openDevTools();
+
+    win.on("closed", () => {
+        if (longControlWindow !== win) return;
+        longControlWindow = null;
+        if (longCompactActive) requestLongControlStop();
+    });
+
+    win.webContents.on("did-fail-load", () => {
+        console.error("紧凑长截屏控制窗加载失败");
+        requestLongControlStop();
+    });
+    win.webContents.on("render-process-gone", () => {
+        requestLongControlStop();
+    });
+
+    win.webContents.once("did-finish-load", () => {
+        if (longControlWindow !== win) return;
+        const info: LongControlInit = {
+            wayland,
+            started: !wayland,
+            preview: placement.preview,
+            hint: placement.hint,
+            firstPreview: data.preview,
+        };
+        mainSend(win.webContents, "long_control_init", [info]);
+        win.showInactive();
+        if (!wayland) {
+            longControlPhase = "running";
+            mainSend(clipWindow?.webContents, "long_compact_run", [
+                placement.preview,
+            ]);
+        }
+    });
+}
+
+mainOn("long_compact_start", ([data]) => {
+    try {
+        createLongControlWindow(data);
+    } catch (error) {
+        console.error("创建紧凑长截屏控制窗失败", error);
+        mainSend(clipWindow?.webContents, "clip_stop_long", []);
+    }
+});
+
+mainOn("long_compact_preview", ([data]) => {
+    if (!longCompactActive || longControlPhase === "finishing") return;
+    const win = longControlWindow;
+    const info = longControlInfo;
+    if (!win || win.isDestroyed() || !info?.preview) return;
+    mainSend(win.webContents, "long_control_preview", [data]);
+    updateLongControlHeight(data);
+});
+
+mainOn("long_compact_warn", ([level]) => {
+    if (!longCompactActive || longControlPhase !== "running") return;
+    const win = longControlWindow;
+    if (!win || win.isDestroyed()) return;
+    mainSend(win.webContents, "long_control_warn", [level]);
+});
+
+mainOn("long_control_start", () => {
+    if (!longCompactActive || longControlPhase !== "positioning") return;
+    const preview = longControlInfo?.preview ?? false;
+    longControlPhase = "running";
+    mainSend(clipWindow?.webContents, "long_compact_run", [preview]);
+});
+
+mainOn("long_control_stop", () => {
+    requestLongControlStop();
+});
+
+mainOn("long_compact_end", async () => {
+    if (!longCompactActive) return;
+    const displayId = longControlInfo?.displayId;
+    closeLongControl();
+    await fullScreen(displayId);
+});
+
+mainOn("clip_show", () => {
+    fullScreen();
+});
+mainOn("clip_close", () => {
+    exitFullScreen();
+});
+mainOn("clip_ocr", ([img, type]) => {
+    createMainWindow({ type: "ocr", content: img, arg0: type });
+});
+mainOn("clip_search", ([img, type]) => {
+    createMainWindow({ type: "image", content: img, arg0: type });
+});
+mainOn("clip_qr", ([img]) => {
+    createMainWindow({ type: "qr", content: img });
+});
+mainOn("clip_hide", async () => {
+    hideClip();
+});
+mainOn("clip_save", async ([type]) => {
+    const savedPath = store.getString("保存.保存路径.图片");
+    const x = await dialog.showSaveDialog({
+        title: t("选择要保存的位置"),
+        defaultPath: savedPath
+            ? join(savedPath, `${getFileName()}.${type}`)
+            : undefined,
+        filters: [{ name: t("图像"), extensions: [type] }],
+    });
+
+    if (x.filePath) {
+    } else {
+        new Notification({
+            title: `${app.name} ${t("保存文件失败")}`,
+            body: t("用户已取消保存"),
+            icon: notifyIcon,
+        }).show();
+        clipWindow?.show();
+        clipWindow?.setSimpleFullScreen(true);
+    }
+    return x.filePath;
+});
+mainOn("clip_ding", ([img, type, rect]) => {
+    createDingWindow(rect.x, rect.y, rect.w, rect.h, img, type);
+});
+mainOn("copy_image", async ([buffer, type]) => {
+    await clipboard.write([
+        new ClipboardItem({ [type]: new Blob([buffer], { type }) }),
+    ]);
+});
+mainOn("copy_image_file", async ([buffer, type]) => {
+    await writeImageFileToClipboard(Buffer.from(buffer), type);
+});
+mainOn("clip_mac_app", async () => {
+    hideClip();
+    const x = await dialog.showOpenDialog({
+        defaultPath: "/Applications",
+    });
+    if (x.canceled) {
+        clipWindow?.show();
+        clipWindow?.setSimpleFullScreen(true);
+    }
+    return { canceled: x.canceled, filePaths: x.filePaths };
+});
+mainOn("getMousePos", (_, e) => {
+    const w = BrowserWindow.fromWebContents(e.sender)?.getBounds();
+    const p = screen.getCursorScreenPoint();
+    return {
+        po: { x: p.x - (w?.x || 0), y: p.y - (w?.y || 0) },
+        ab: p,
+    };
+});
+mainOn("clip_translate", ([arg]) => {
+    createTranslator(arg);
+});
+mainOn("clip_editor", ([arg]) => {
+    createPhotoEditor(arg);
+});
+mainOn("clip_recordx", ([opt]) => {
+    createSuperRecorderWindow(opt);
+});
+
+/**
+ * 获取图片
+ * @param {?string} imgPath 路径
+ */
+function showPhoto(imgPath?: string) {
+    if (imgPath) {
+        console.log(imgPath);
+        readFile(imgPath, (err, data) => {
+            if (err) console.error(err);
+            sendCaptureEvent(data);
+        });
+    } else {
+        sendCaptureEvent();
+    }
+}
+
+async function fullScreen(displayId?: number) {
+    const nearestScreen =
+        (displayId !== undefined
+            ? screen.getAllDisplays().find((d) => d.id === displayId)
+            : undefined) ??
+        screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const win = await getClipWin();
+    win.setBounds({
+        x: nearestScreen.bounds.x,
+        y: nearestScreen.bounds.y,
+    });
+    win.show();
+    win.setSimpleFullScreen(true);
+    win.focus();
+}
+
+async function sendCaptureEvent(data?: Buffer, type?: 功能) {
+    mainSend((await getClipWin())?.webContents, "clip_init", [
+        screen.getAllDisplays(),
+        data,
+        screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id,
+        type,
+        process.pid,
+    ]);
+}
+
+/** 关闭或隐藏截屏 */
+function exitFullScreen() {
+    closeLongControl();
+    if (keepClip) {
+        clipWindow?.setSimpleFullScreen(false);
+        clipWindow?.hide();
+        try {
+            clipWindow?.reload();
+        } catch {}
+    } else {
+        clipWindow?.close();
+        clipWindow = null;
+        clipWindowLoaded = false;
+    }
+}
+
+/** 隐藏截屏窗口 */
+function hideClip() {
+    clipWindow?.setSimpleFullScreen(false);
+    clipWindow?.hide();
+}
+
+/** 快速截屏 */
+async function quickClip() {
+    const screenShots = initScreenShots(...screenShotArgs);
+    let copied = false;
+    for (const c of (await screenShots()).screen) {
+        const image: NativeImage = (await c.capture()).toNativeImage();
+        if (store.get("快速截屏.模式") === "clip") {
+            await writeImageToClipboard(image);
+            copied = true;
+        } else if (
+            store.get("快速截屏.模式") === "path" &&
+            store.getString("快速截屏.路径")
+        ) {
+            const filename = checkFile(
+                join(store.getString("快速截屏.路径"), `${getFileName()}.png`),
+            );
+            if (!image) return;
+            writeFileSync(filename, image.toPNG());
+            noti(filename);
+        }
+    }
+    if (copied) {
+        new Notification({
+            title: app.name,
+            body: t("已截取全屏并复制到剪贴板"),
+            icon: notifyIcon,
+        }).show();
+    }
+}
+function checkFile(name: string, baseName = name, n = 1) {
+    // 检查文件是否存在于当前目录中。
+    if (existsSync(name)) {
+        /* 存在文件，需要重命名 */
+        const name = baseName.replace(/\.(\w+$)/, `(${n}).$1`);
+        return checkFile(name, baseName, n + 1);
+    }
+    return name;
+}
+
+/** 连拍 */
+function lianPai(d = store.get("连拍.间隔"), maxN = store.get("连拍.数")) {
+    const basePath = store.getString("快速截屏.路径");
+    if (!basePath) return;
+    const screenShots = initScreenShots(...screenShotArgs);
+    const dirPath = checkFile(join(basePath, getFileName()));
+    mkdirSync(dirPath, { recursive: true });
+    for (let i = 0; i < maxN; i++) {
+        setTimeout(async () => {
+            const image = (
+                await (await screenShots()).screen[0].capture()
+            ).toNativeImage();
+            const buffer = image.toPNG();
+            const filePath = join(dirPath, `${i}.png`);
+            writeFile(filePath, buffer, (err) => {
+                if (err)
+                    console.error(`连拍第 ${i} 张写入失败: ${err.message}`);
+            });
+        }, d * i);
+    }
+}
+
+let _recorder: BrowserWindow;
+let _recorderTipWin: BrowserWindow;
+
+/** 录屏提示覆盖层：框选区域的虚线、键盘鼠标提示、摄像头、悬浮控制条 */
+function createRecorderTipWindow(
+    rect0: [number, number, number, number],
+    ratio: number,
+    displayId: string,
+) {
+    const border = 2;
+    const display = screen
+        .getAllDisplays()
+        .find((d) => String(d.id) === displayId);
+    const rect1 = rect0.map((v) => Math.round(v / ratio));
+    const recorderTipWin = new BrowserWindow({
+        x: (display?.bounds.x ?? 0) + rect1[0] - border,
+        y: (display?.bounds.y ?? 0) + rect1[1] - border,
+        width: rect1[2] + border * 2,
+        height: rect1[3] + border * 2 + 24,
+        transparent: true,
+        frame: false,
+        autoHideMenuBar: true,
+        resizable: process.platform === "linux",
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            sandbox: false,
+        },
+    });
+    _recorderTipWin = recorderTipWin;
+    rendererPath(recorderTipWin, "recorderTip.html", {
+        query: { nopause: "1" },
+    });
+    if (dev) recorderTipWin.webContents.openDevTools();
+
+    recorderTipWin.setAlwaysOnTop(true, "screen-saver");
+
+    recorderTipWin.setIgnoreMouseEvents(true);
+    return recorderTipWin;
+}
+
+function checkWin(win: BrowserWindow) {
+    return win && !win.isDestroyed();
+}
+
+mainOn("recordStop", () => {
+    if (checkWin(_recorderTipWin)) _recorderTipWin.close();
+});
+mainOnReflect("recordTime", () => {
+    if (checkWin(_recorderTipWin)) return [_recorderTipWin.webContents];
+    return [];
+});
+mainOnReflect("recordCamera", () => {
+    if (checkWin(_recorderTipWin)) return [_recorderTipWin.webContents];
+    return [];
+});
+mainOnReflect("recordState", () => {
+    if (checkWin(_recorder)) return [_recorder.webContents];
+    return [];
+});
+
+function createSuperRecorderWindow(fixed?: RecordRect) {
+    const recorder = new BrowserWindow(baseWinConfig());
+    recorder.minimize();
+    rendererPath(recorder, "videoEditor.html");
+    if (dev) recorder.webContents.openDevTools();
+    if (fixed) {
+        _recorder = recorder;
+        const tip = createRecorderTipWindow(fixed.rect, fixed.r, fixed.id);
+        tip.webContents.on("did-finish-load", () => {
+            mainSend(tip.webContents, "recordCamera", [
+                store.get("录屏.摄像头.开启"),
+            ]);
+        });
+        recorder.on("close", () => {
+            if (!tip.isDestroyed()) tip.close();
+        });
+    }
+    recorder.webContents.on("did-finish-load", () => {
+        desktopCapturer.getSources({ types: ["screen"] }).then((sources) => {
+            let dId = sources[0].id;
+            if (fixed)
+                dId = sources.find((s) => s.display_id === fixed.id)?.id ?? dId;
+            mainSend(recorder.webContents, "superRecorderInit", [dId, fixed]);
+        });
+    });
+}
+mainOn("setting_start_clip", () => {
+    if (settingWindow && !settingWindow.isDestroyed()) {
+        settingWindow.minimize();
+    }
+    setTimeout(() => {
+        showPhoto();
+    }, 160);
+});
+mainOn("reloadMainFromSetting", () => {
+    if (clipWindow && !clipWindow.isDestroyed() && !clipWindow.isVisible())
+        clipWindow.reload();
+    if (contextMenu && tray) {
+        const browserItem = contextMenu.items.find(
+            (i) => i.label === t("浏览器打开"),
+        );
+        if (browserItem) browserItem.checked = store.get("浏览器中打开");
+        tray.popUpContextMenu(contextMenu);
+        tray.closeContextMenu();
+    }
+});
+mainOn("getDefaultSetting", async () => {
+    return defaultSetting;
+});
+mainOn("reload", () => {
+    app.relaunch();
+    app.exit(0);
+});
+mainOn("exit", () => {
+    app.exit(0);
+});
+mainOn("clearStorage", () => {
+    const ses = session.defaultSession;
+    ses.clearStorageData();
+});
+mainOn("clearCache", () => {
+    const ses = session.defaultSession;
+    Promise.all([
+        ses.clearAuthCache(),
+        ses.clearCache(),
+        ses.clearCodeCaches({}),
+        ses.clearHostResolverCache(),
+    ]);
+});
+mainOn("move_user_data", ([target]) => {
+    if (typeof target !== "string" || !target) return;
+    const toPath = resolve(target);
+    const prePath = app.getPath("userData");
+    mkdirSync(toPath, { recursive: true });
+    try {
+        if (process.platform === "win32") {
+            execSync(`xcopy "${prePath}\\**" "${toPath}" /Y /s`);
+        } else {
+            execSync(`cp -r "${prePath}/**" "${toPath}"`);
+        }
+    } catch (error) {}
+    // todo 错误返回
+});
+mainOn("getAutoStart", () => {
+    if (process.platform === "linux") {
+        try {
+            const autoStartPath = join(
+                homedir(),
+                ".config/autostart/e-search.desktop",
+            );
+            return existsSync(autoStartPath);
+        } catch (error) {
+            return false;
+        }
+    }
+    return app.getLoginItemSettings().openAtLogin;
+});
+mainOn("setAutoStart", ([arg1]) => {
+    if (process.platform === "linux") {
+        try {
+            const autoStartDir = join(homedir(), ".config/autostart");
+            const autoStartFile = join(autoStartDir, "e-search.desktop");
+            if (arg1) {
+                mkdirSync(autoStartDir, { recursive: true });
+                cpSync(join(runPath, "assets/e-search.desktop"), autoStartFile);
+            } else {
+                rmSync(autoStartFile, { recursive: true });
+            }
+        } catch {}
+    } else {
+        app.setLoginItemSettings({
+            openAtLogin: arg1,
+            args: arg1 ? ["--hidden"] : [],
+        });
+    }
+});
+mainOn("theme", ([arg1]) => {
+    nativeTheme.themeSource = arg1;
+    store.set("全局.深色模式", arg1);
+});
+
+const registeredHotkeys = new Map<string, string>();
+
+function normalizeAccelerator(raw: string): string {
+    if (!raw) return "";
+    const parts = raw
+        .split("+")
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => {
+            if (p === "Ctrl") return "Control";
+            if (p === "Meta" || p === "OS" || p === "Win") return "Super";
+            if (p === " ") return "Space";
+            if (p.length === 1 && /[a-z]/.test(p)) return p.toUpperCase();
+            return p;
+        });
+    const modOrder = [
+        "Control",
+        "CommandOrControl",
+        "Command",
+        "Alt",
+        "Shift",
+        "Super",
+    ];
+    const mods = modOrder.filter((m) => parts.includes(m));
+    const keys = parts.filter((p) => !modOrder.includes(p));
+    if (keys.length === 0) return "";
+    return [...mods, ...keys].join("+");
+}
+
+mainOn("hotkey", ([type, name, rawKey]) => {
+    const [storeKey, action] =
+        type === "快捷键"
+            ? ([
+                  `快捷键.${name}.key`,
+                  () => 快捷键函数[name as keyof typeof 快捷键函数](),
+              ] as const)
+            : ([
+                  `全局工具快捷键.${name}`,
+                  () => sendCaptureEvent(undefined, name as 功能),
+              ] as const);
+    const key = normalizeAccelerator(rawKey || "");
+    if (rawKey && !key) {
+        return false;
+    }
+    // @ts-ignore
+    const old =
+        registeredHotkeys.get(storeKey) ??
+        (store.get(storeKey) as string) ??
+        "";
+    if (key && key === old && globalShortcut.isRegistered(key)) {
+        // @ts-ignore
+        store.set(storeKey, key);
+        registeredHotkeys.set(storeKey, key);
+        return true;
+    }
+
+    if (old) {
+        try {
+            globalShortcut.unregister(old);
+        } catch {}
+        registeredHotkeys.delete(storeKey);
+    }
+
+    if (!key) {
+        // @ts-ignore
+        store.set(storeKey, "");
+        return true;
+    }
+
+    let ok = false;
+    try {
+        ok = globalShortcut.register(key, action);
+    } catch {
+        ok = false;
+    }
+    if (!ok) {
+        console.error(
+            `快捷键注册失败：${name} = ${key}（恢复 ${old || "空"}）`,
+        );
+        if (old) {
+            try {
+                if (globalShortcut.register(old, action)) {
+                    registeredHotkeys.set(storeKey, old);
+                }
+            } catch {}
+        }
+        return false;
+    }
+    registeredHotkeys.set(storeKey, key);
+    // @ts-ignore
+    store.set(storeKey, key);
+    return true;
+});
+
+// 贴图
+
+function dingObj() {
+    const obj = new Map<
+        number,
+        { win: BrowserWindow; display: Electron.Display }
+    >();
+    return {
+        set: (
+            id: number,
+            v: { win: BrowserWindow; display: Electron.Display },
+        ) => {
+            obj.set(id, v);
+            v.win.on("closed", () => {
+                obj.delete(id);
+            });
+        },
+        delete: (id: number) => {
+            const x = obj.get(id);
+            if (x && !x.win.isDestroyed()) {
+                x.win.close();
+            }
+            return obj.delete(id);
+        },
+        entries: () => {
+            return Array.from(obj.entries()).filter(
+                ([_, v]) => !v.win.isDestroyed(),
+            );
+        },
+        keys: () => {
+            return Array.from(obj.keys());
+        },
+        size: () => {
+            return obj.size;
+        },
+    };
+}
+
+/** 全屏覆盖层：每个显示器一个窗口，窗口内模拟多个贴图 */
+const dingOverlayList = dingObj();
+/** 独立系统窗口：每个贴图一个窗口 */
+const dingSingleList = new Map<number, BrowserWindow>();
+/** 处于动态状态的贴图 id，用于数量限制和清理 */
+const liveDingIds = new Set<number>();
+/** 所有存活的贴图 id，覆盖层广播时用它判断是否全部关闭 */
+const activeDingIds = new Set<number>();
+/** 选源页待处理的动态贴图请求 */
+const pendingLivePicks = new Map<
+    number,
+    {
+        poster: string;
+        rect: { x: number; y: number; w: number; h: number };
+        displayId: number;
+        replace?: { sender: Electron.WebContents; id: number };
+    }
+>();
+
+async function getWindowSources(): Promise<CaptureSourceInfo[]> {
+    try {
+        // PipeWire 需要同时请求窗口和屏幕，门户才会返回用户选择的那一个
+        const types: Array<"window" | "screen"> =
+            process.platform === "linux" ? ["window", "screen"] : ["window"];
+        const sources = await desktopCapturer.getSources({
+            types,
+            thumbnailSize: { width: 320, height: 180 },
+            fetchWindowIcons: true,
+        });
+        return sources
+            .filter((s) => !s.id.endsWith(":1") && !s.id.startsWith("screen:"))
+            .map((s) => ({
+                id: s.id,
+                name: s.name,
+                thumbnail: s.thumbnail.isEmpty()
+                    ? ""
+                    : `data:image/jpeg;base64,${s.thumbnail.toJPEG(75).toString("base64")}`,
+                appIcon:
+                    s.appIcon && !s.appIcon.isEmpty()
+                        ? s.appIcon.toDataURL()
+                        : "",
+                displayId: s.display_id,
+            }));
+    } catch (error) {
+        console.error(error);
+        return [];
+    }
+}
+
+async function createLiveDingPicker(data: {
+    poster: string;
+    rect: { x: number; y: number; w: number; h: number };
+    displayId: number;
+    sources?: CaptureSourceInfo[];
+    replace?: { sender: Electron.WebContents; id: number };
+}) {
+    const display =
+        screen.getAllDisplays().find((d) => d.id === data.displayId) ??
+        screen.getDisplayNearestPoint({
+            x: Math.round(data.rect.x),
+            y: Math.round(data.rect.y),
+        });
+    // 先取源再创建全屏窗口，避免置顶窗口挡住 PipeWire 的系统选择框
+    const sources =
+        data.sources !== undefined ? data.sources : await getWindowSources();
+    const win = new BrowserWindow({
+        ...baseWinConfig(),
+        x: display.bounds.x,
+        y: display.bounds.y,
+        width: display.bounds.width,
+        height: display.bounds.height,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+    });
+    pendingLivePicks.set(win.id, data);
+    rendererPath(win, "dingPicker.html");
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.focus();
+    win.webContents.focus();
+    win.on("closed", () => {
+        pendingLivePicks.delete(win.id);
+    });
+    win.webContents.on("did-finish-load", () => {
+        if (win.isDestroyed()) return;
+        mainSend(win.webContents, "dingPickerInit", [
+            { sources, rect: data.rect, poster: data.poster },
+        ]);
+    });
+}
+
+let dingId = 0;
+let dingThrogh: null | boolean = null;
+let dingThroghInited = false;
+let dingTickRunning = false;
+
+async function dingFromClipBoard() {
+    const img = await readImageFromClipboard();
+    if (img.getSize().height && img.getSize().width) {
+        console.log("ding img");
+        ding(img);
+    }
+}
+
+function ding(img: NativeImage) {
+    const nowPoint = screen.getCursorScreenPoint();
+    const size = img.getSize();
+    if (!size.width || !size.height) return;
+    createDingWindow(
+        nowPoint.x,
+        nowPoint.y,
+        size.width,
+        size.height,
+        img.toDataURL(),
+    );
+}
+
+function dingWindowOptions(): Electron.BrowserWindowConstructorOptions {
+    return {
+        icon: theIcon,
+        transparent: true,
+        frame: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        autoHideMenuBar: true,
+        enableLargerThanScreen: true, // mac
+        hasShadow: false,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        },
+    };
+}
+
+function initDingWindow(win: BrowserWindow) {
+    if (dev) win.webContents.openDevTools();
+    win.webContents.on("console-message", (d) => {
+        if (d.level !== "debug")
+            pushLog({
+                from: "ding",
+                lineCount: d.lineNumber,
+                message: d.message,
+                type: d.level,
+            });
+    });
+    win.setAlwaysOnTop(true, "screen-saver");
+}
+
+/** 覆盖层模式：窗口铺满显示器，贴图在窗口内 */
+function createDingOverlay(
+    id: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    img: string,
+    type: "translate" | "ding",
+    live?: LiveDingData,
+    displayId?: number,
+) {
+    if (dingOverlayList.size() === 0) {
+        for (const display of screen.getAllDisplays()) {
+            const bounds = display.bounds;
+            const win = new BrowserWindow({
+                ...dingWindowOptions(),
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: bounds.height,
+            });
+            dingOverlayList.set(display.id, { win, display });
+            rendererPath(win, "ding.html");
+            initDingWindow(win);
+            win.webContents.on("did-finish-load", () => {
+                if (win.isDestroyed()) return;
+                if (live && display.id !== displayId) return;
+                mainSend(win.webContents, "addDing", [
+                    id,
+                    x - bounds.x,
+                    y - bounds.y,
+                    w,
+                    h,
+                    img,
+                    type,
+                    live,
+                    live ? displayId : undefined,
+                ]);
+            });
+            win.setIgnoreMouseEvents(true);
+        }
+    } else {
+        for (const [displayIdNow, win] of dingOverlayList.entries()) {
+            if (live && displayIdNow !== displayId) continue;
+            const b = win.win.getBounds();
+            mainSend(win.win.webContents, "addDing", [
+                id,
+                x - b.x,
+                y - b.y,
+                w,
+                h,
+                img,
+                type,
+                live,
+                live ? displayId : undefined,
+            ]);
+        }
+    }
+}
+
+/** 独立模式：贴图本身就是一个系统窗口 */
+function createDingSingle(
+    id: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    img: string,
+    type: "translate" | "ding",
+    live?: LiveDingData,
+) {
+    const displayId = screen.getDisplayNearestPoint({
+        x: Math.round(x + w / 2),
+        y: Math.round(y + h / 2),
+    }).id;
+    const win = new BrowserWindow({
+        ...dingWindowOptions(),
+        x,
+        y,
+        width: w,
+        height: h,
+        resizable: true,
+        thickFrame: false,
+    });
+    dingSingleList.set(id, win);
+    win.on("closed", () => {
+        dingSingleList.delete(id);
+        liveDingIds.delete(id);
+        activeDingIds.delete(id);
+    });
+    if (dingThrogh) win.setIgnoreMouseEvents(true);
+    rendererPath(win, "ding.html", { query: { mode: "single" } });
+    initDingWindow(win);
+    win.webContents.on("did-finish-load", () => {
+        if (win.isDestroyed()) return;
+        mainSend(win.webContents, "dingInit", [
+            id,
+            x,
+            y,
+            w,
+            h,
+            img,
+            type,
+            live,
+            displayId,
+        ]);
+    });
+    // 窗口被系统缩放时保持图片比例
+    win.setAspectRatio(w / h);
+}
+
+function createDingWindow(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    img: string,
+    type: "translate" | "ding" = "ding",
+    live?: LiveDingData,
+) {
+    const id = ++dingId;
+    let displayId: number | undefined;
+    if (live) {
+        const max = store.get("贴图.动态.最大数量") || 4;
+        if (liveDingIds.size >= max) {
+            new Notification({
+                title: `${app.name} ${t("动态贴图")}`,
+                body: t("动态贴图数量已达到上限"),
+                icon: notifyIcon,
+            }).show();
+            return;
+        }
+        liveDingIds.add(id);
+        displayId = screen.getDisplayNearestPoint({
+            x: Math.round(x + w / 2),
+            y: Math.round(y + h / 2),
+        }).id;
+    }
+    activeDingIds.add(id);
+    if (store.get("贴图.窗口.独立窗口")) {
+        createDingSingle(id, x, y, w, h, img, type, live);
+    } else {
+        createDingOverlay(id, x, y, w, h, img, type, live, displayId);
+    }
+    forceDingThrogh();
+    if (!dingTickRunning) {
+        dingTickRunning = true;
+        dingTick();
+    }
+}
+
+/** 给所有贴图窗口同步指针位置，用于鼠标穿透和自定义拖动缩放 */
+function dingTick() {
+    const overlays = dingOverlayList.entries();
+    const singles = Array.from(dingSingleList.values());
+    if (overlays.length === 0 && singles.length === 0) {
+        dingTickRunning = false;
+        return;
+    }
+    const p = screen.getCursorScreenPoint();
+    const send = (win: BrowserWindow) => {
+        if (win.isDestroyed()) return;
+        const b = win.getBounds();
+        mainSend(win.webContents, "dingMouse", [
+            p.x - b.x,
+            p.y - b.y,
+            p.x,
+            p.y,
+        ]);
+    };
+    for (const [_, { win }] of overlays) send(win);
+    for (const win of singles) send(win);
+    setTimeout(dingTick, 10);
+}
+
+mainOn("dingIgnore", ([v]) => {
+    for (const [_, win] of dingOverlayList.entries()) {
+        win.win.setIgnoreMouseEvents(dingThrogh === null ? v : dingThrogh);
+    }
+});
+
+mainOn("dingSetBounds", ([x, y, w, h], e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win || win.isDestroyed()) return;
+    const bounds = {
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.max(1, Math.round(w)),
+        height: Math.max(1, Math.round(h)),
+    };
+    const now = win.getBounds();
+    if (
+        now.x === bounds.x &&
+        now.y === bounds.y &&
+        now.width === bounds.width &&
+        now.height === bounds.height
+    )
+        return;
+    win.setBounds(bounds);
+});
+
+function forceDingThrogh() {
+    if (dingThroghInited) return;
+    const key = store.get("贴图.强制鼠标穿透");
+    if (!key) return;
+    dingThroghInited = true;
+    globalShortcut.register(key, () => {
+        dingThrogh = !dingThrogh;
+        for (const [_, { win }] of dingOverlayList.entries()) {
+            win.setIgnoreMouseEvents(dingThrogh);
+        }
+        for (const win of dingSingleList.values()) {
+            win.setIgnoreMouseEvents(dingThrogh);
+        }
+    });
+}
+
+mainOnReflect("dingShare", ([data]) => {
+    if (data.type === "close") {
+        const id = Number(data.id);
+        liveDingIds.delete(id);
+        activeDingIds.delete(id);
+        if (activeDingIds.size === 0) {
+            for (const i of dingOverlayList.keys()) {
+                dingOverlayList.delete(i);
+            }
+            liveDingIds.clear();
+            return [];
+        }
+    }
+
+    return dingOverlayList.entries().map(([_, { win }]) => win.webContents);
+});
+
+mainOn("getCaptureSources", async ([requestId], e) => {
+    mainSend(e.sender, "captureSources", [requestId, await getWindowSources()]);
+});
+
+mainOn("clip_ding_live", ([data]) => {
+    if (!data.target) {
+        void createLiveDingPicker(data);
+        return;
+    }
+    createDingWindow(
+        data.rect.x,
+        data.rect.y,
+        data.rect.w,
+        data.rect.h,
+        data.poster,
+        "ding",
+        {
+            sourceId: data.target.sourceId,
+            windowId: data.target.windowId,
+            appName: data.target.appName,
+            title: data.target.title,
+            crop: data.target.crop,
+            fps: store.get("贴图.动态.帧率") || 30,
+        },
+    );
+});
+
+mainOn("dingLivePick", ([data], e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return;
+    const pending = pendingLivePicks.get(win.id);
+    if (!pending) return;
+    pendingLivePicks.delete(win.id);
+    if (pending.replace) {
+        const live: LiveDingData = {
+            sourceId: data.sourceId,
+            windowId: Number(data.sourceId.split(":")[1]) || undefined,
+            appName: data.appName,
+            title: data.title,
+            crop: data.crop,
+            fps: store.get("贴图.动态.帧率") || 30,
+        };
+        if (!pending.replace.sender.isDestroyed()) {
+            mainSend(pending.replace.sender, "dingLiveSwitch", [
+                pending.replace.id,
+                live,
+                data.poster,
+            ]);
+        }
+        win.close();
+        return;
+    }
+    win.once("closed", () => {
+        createDingWindow(
+            data.rect.x,
+            data.rect.y,
+            data.rect.w,
+            data.rect.h,
+            data.poster,
+            "ding",
+            {
+                sourceId: data.sourceId,
+                windowId: Number(data.sourceId.split(":")[1]) || undefined,
+                appName: data.appName,
+                title: data.title,
+                crop: data.crop,
+                fps: store.get("贴图.动态.帧率") || 30,
+            },
+        );
+    });
+    win.close();
+});
+
+mainOn("dingLiveChangeSource", ([data], e) => {
+    const display =
+        screen.getAllDisplays().find((d) => d.id === data.displayId) ??
+        screen.getDisplayNearestPoint({
+            x: Math.round(data.rect.x),
+            y: Math.round(data.rect.y),
+        });
+    void createLiveDingPicker({
+        poster: data.poster,
+        rect: data.rect,
+        displayId: display.id,
+        replace: { sender: e.sender, id: data.id },
+    });
+});
+
+mainOn("dingLiveCancel", (_data, e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return;
+    pendingLivePicks.delete(win.id);
+    win.close();
+});
+
+mainOn("dingLiveStop", ([id]) => {
+    liveDingIds.delete(id);
+});
+
+mainOn("dingPickerRefresh", async (_data, e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return;
+    win.hide();
+    const sources = await getWindowSources();
+    if (win.isDestroyed()) return;
+    win.show();
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.focus();
+    mainSend(win.webContents, "dingPickerSources", [sources]);
+});
+
+mainOn("dingPickerTop", ([top], e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win || win.isDestroyed()) return;
+    win.setAlwaysOnTop(top, "screen-saver");
+});
+mainOn("edit_pic", ([img]) => {
+    sendCaptureEvent(img);
+});
+
+function createTranslator(op: Omit<translateWinType, "type">) {
+    const win = new BrowserWindow({
+        transparent: true,
+        frame: false,
+        alwaysOnTop: true,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        },
+        autoHideMenuBar: true,
+    });
+
+    const screenSize = (
+        screen.getAllDisplays().find((i) => i.id === op.displayId) ||
+        screen.getPrimaryDisplay()
+    ).bounds;
+    let x = Math.floor(op.dipRect.x);
+    let y = Math.floor(op.dipRect.y);
+    const w = Math.floor(op.dipRect.w);
+    const h = Math.floor(op.dipRect.h);
+    if (w > h) {
+        const y1 = Math.max(0, op.dipRect.y - op.dipRect.h);
+        const y2 = Math.min(
+            screenSize.height - op.dipRect.h,
+            op.dipRect.y + op.dipRect.h,
+        );
+        y =
+            Math.abs(y1 - y) > Math.abs(y2 - y)
+                ? Math.floor(y1)
+                : Math.floor(y2);
+    } else {
+        const x1 = Math.max(0, op.dipRect.x - op.dipRect.w);
+        const x2 = Math.min(
+            screenSize.width - op.dipRect.w,
+            op.dipRect.x + op.dipRect.w,
+        );
+        x =
+            Math.abs(x1 - x) > Math.abs(x2 - x)
+                ? Math.floor(x1)
+                : Math.floor(x2);
+    }
+    win.setBounds({
+        x: x,
+        y: y,
+        width: w,
+        height: h,
+    });
+
+    rendererPath(win, "translator.html");
+    if (dev) win.webContents.openDevTools();
+    win.webContents.on("did-finish-load", () => {
+        mainSend(win.webContents, "translatorInit", [
+            op.displayId,
+            screen.getAllDisplays(),
+            op.rect,
+        ]);
+    });
+    win.webContents.on("console-message", (d) => {
+        if (d.level !== "debug")
+            pushLog({
+                from: "translator",
+                lineCount: d.lineNumber,
+                message: d.message,
+                type: d.level,
+            });
+    });
+
+    win.setAlwaysOnTop(true, "screen-saver");
+}
+
+function createPhotoEditor(img: string) {
+    const win = new BrowserWindow(baseWinConfig());
+    win.maximize();
+
+    rendererPath(win, "photoEditor.html");
+    if (dev) win.webContents.openDevTools();
+
+    win.webContents.on("did-finish-load", () => {
+        mainSend(win.webContents, "superPhotoEditorInit", [img]);
+    });
+}
+
+// 主页面
+const mainWindowL: {
+    [n: number]: {
+        win: BrowserWindow;
+        browser: { top: number; bottom: number };
+    };
+} = {};
+
+const mainToSearchL: { [n: number]: Array<number> } = {};
+async function createMainWindow(op: MainWinType) {
+    if (store.get("主页面.复用") && Object.keys(mainWindowL).length > 0) {
+        const name = Math.max(
+            ...Object.keys(mainWindowL).map((i) => Number(i)),
+        );
+        const mainWindow = mainWindowL[name].win;
+        op.time = Date.now();
+        mainSend(mainWindow.webContents, "editorInit", [name, op]);
+        if (store.get("主页面.复用后聚焦")) mainWindow.focus();
+        return name;
+    }
+
+    const windowName = Date.now();
+    const [w, h, m] = store.get("主页面大小");
+    const vr = screen.getDisplayNearestPoint(
+        screen.getCursorScreenPoint(),
+    ).bounds;
+    const px = screen.getCursorScreenPoint().x;
+    const py = screen.getCursorScreenPoint().y;
+    const x = px > vr.x + vr.width / 2 ? px - w : px;
+    const y = py > vr.y + vr.height / 2 ? py - h : py;
+    const bg = nativeTheme.shouldUseDarkColors
+        ? store.get("全局.主题.dark.bg")
+        : store.get("全局.主题.light.bg");
+    const mainWindow = new BrowserWindow({
+        x: Math.max(vr.x, x),
+        y: Math.max(vr.y, y),
+        width: w,
+        height: h,
+        minWidth: 400,
+        ...baseWinConfig(),
+        titleBarStyle: "hidden",
+        titleBarOverlay: {
+            color: bg,
+            symbolColor: nativeTheme.shouldUseDarkColors
+                ? store.get("全局.主题.dark.fontColor")
+                : store.get("全局.主题.light.fontColor"),
+            height: 32,
+        },
+    });
+    mainWindowL[windowName] = {
+        browser: { top: 0, bottom: 48 },
+        win: mainWindow,
+    };
+
+    mainToSearchL[windowName] = [];
+
+    if (m) mainWindow.maximize();
+
+    rendererPath(mainWindow, "editor.html");
+
+    await mainWindow.webContents.session.setProxy(store.get("代理"));
+
+    if (dev) mainWindow.webContents.openDevTools();
+
+    op.time = windowName;
+
+    mainWindow.webContents.on("did-finish-load", () => {
+        mainWindow.webContents.setZoomFactor(store.get("全局.缩放") || 1.0);
+        // 确保切换到index时能传递window_name
+        mainSend(mainWindow.webContents, "editorInit", [windowName, op]);
+
+        if (op.type === "image" && op.arg0 === "ai") {
+            createBrowser(windowName, "./aiVision.html").then((c) => {
+                c?.executeJavaScript(`setImg("${op.content}")`);
+            });
+        }
+    });
+    mainWindow.webContents.on("console-message", (d) => {
+        if (d.level !== "debug")
+            pushLog({
+                from: "mainWindow",
+                lineCount: d.lineNumber,
+                message: d.message,
+                type: d.level,
+            });
+    });
+
+    mainWindow.on("close", () => {
+        store.set("主页面大小", [
+            mainWindow.getNormalBounds().width,
+            mainWindow.getNormalBounds().height,
+            mainWindow.isMaximized(),
+        ]);
+        for (const i of mainWindow.contentView.children) {
+            if (i instanceof WebContentsView) i.webContents.close();
+        }
+    });
+
+    mainWindow.on("closed", () => {
+        delete mainWindowL[windowName];
+    });
+
+    // 浏览器大小适应
+    mainWindow.on("resize", () => {
+        setTimeout(() => {
+            for (const i of mainWindow.contentView.children) {
+                if (i.getBounds().width !== 0)
+                    setViewSize(i, mainWindow, mainWindowL[windowName].browser);
+            }
+        }, 0);
+    });
+
+    return windowName;
+}
+
+let settingWindow: BrowserWindow | null = null;
+
+async function createSettingWindow() {
+    if (settingWindow && !settingWindow.isDestroyed()) {
+        if (settingWindow.isMinimized()) settingWindow.restore();
+        settingWindow.show();
+        settingWindow.focus();
+        return;
+    }
+    settingWindow = new BrowserWindow({
+        minWidth: 740,
+        width: 1020,
+        height: 720,
+        ...baseWinConfig(),
+    });
+
+    rendererPath(settingWindow, "setting.html");
+
+    await settingWindow.webContents.session.setProxy(store.get("代理"));
+
+    if (dev) settingWindow.webContents.openDevTools();
+
+    settingWindow.webContents.on("did-finish-load", () => {
+        settingWindow?.webContents.setZoomFactor(store.get("全局.缩放") || 1.0);
+    });
+}
+
+async function createHelpWindow() {
+    shell.openExternal("https://github.com/xiaoxi303/PunPuin#readme");
+}
+
+const searchWindowL: { [n: number]: WebContentsView } = {};
+const browserViewWcIds = new Set<number>();
+const clipboardPermissions = new Set([
+    "clipboard-sanitized-write",
+    "clipboard-read",
+]);
+
+// 权限拦截只该作用于网页视图本身，否则会连带禁掉截屏等自家窗口的剪贴板
+function allowOwnClipboard(
+    webContents: Electron.WebContents | null,
+    permission: string,
+) {
+    return (
+        clipboardPermissions.has(permission) &&
+        !(webContents && browserViewWcIds.has(webContents.id))
+    );
+}
+mainOn("open_this_browser", ([window_name, url]) => {
+    createBrowser(window_name, url);
+});
+
+/** 创建浏览器页面 */
+async function createBrowser(windowName: number, url: string) {
+    console.log(url);
+
+    if (!windowName)
+        windowName = await createMainWindow({ type: "text", content: "" });
+
+    const mainWindow = mainWindowL[windowName].win;
+
+    if (mainWindow.isDestroyed()) return null;
+    minViews(mainWindow);
+    const view = Date.now();
+    let webPreferences: Electron.WebPreferences = {};
+    if (url.startsWith("translate") || url === "./aiVision.html") {
+        webPreferences = {
+            nodeIntegration: true,
+            contextIsolation: false,
+            webSecurity: false,
+        };
+    }
+    const searchView = new WebContentsView({
+        webPreferences,
+    });
+    searchWindowL[view] = searchView;
+    await searchView.webContents.session.setProxy(store.get("代理"));
+    mainWindow.contentView.addChildView(searchView);
+
+    if (url.startsWith("translate")) {
+        rendererPath2(searchView.webContents, "translate.html", {
+            query: { text: url.replace("translate/?text=", "") },
+        });
+    } else if (url === "./aiVision.html") {
+        rendererPath2(searchView.webContents, "aiVision.html", {});
+    } else searchView.webContents.loadURL(url);
+    const bSize = mainWindowL[windowName].browser;
+    setViewSize(searchView, mainWindow, bSize);
+    searchView.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith("http") || url.startsWith("https"))
+            createBrowser(windowName, url);
+        return { action: "deny" };
+    });
+    if (dev) searchView.webContents.openDevTools();
+    if (!mainWindow.isDestroyed())
+        mainSend(mainWindow.webContents, "browserNew", [view, url]);
+
+    browserViewWcIds.add(searchView.webContents.id);
+    searchView.webContents.session.setPermissionRequestHandler(
+        (wc, permission, cb) => cb(allowOwnClipboard(wc, permission)),
+    );
+    searchView.webContents.session.setPermissionCheckHandler((wc, permission) =>
+        allowOwnClipboard(wc, permission),
+    );
+
+    searchView.webContents.on("page-title-updated", (_event, title) => {
+        if (!mainWindow.isDestroyed())
+            mainSend(mainWindow.webContents, "browserTitle", [view, title]);
+    });
+    searchView.webContents.on("page-favicon-updated", (_event, favlogo) => {
+        if (!mainWindow.isDestroyed())
+            mainSend(mainWindow.webContents, "browserIcon", [view, favlogo[0]]);
+    });
+    searchView.webContents.on("did-navigate", (_event, url) => {
+        if (!mainWindow.isDestroyed())
+            mainSend(mainWindow.webContents, "browserUrl", [view, url]);
+    });
+    searchView.webContents.on("did-start-loading", () => {
+        if (!mainWindow.isDestroyed())
+            mainSend(mainWindow.webContents, "browserLoad", [view, true]);
+    });
+    searchView.webContents.on("did-stop-loading", () => {
+        if (!mainWindow.isDestroyed())
+            mainSend(mainWindow.webContents, "browserLoad", [view, false]);
+    });
+    searchView.webContents.on("did-fail-load", (_event, err_code, err_des) => {
+        rendererPath2(searchView.webContents, "browser_bg.html", {
+            query: {
+                type: "did-fail-load",
+                err_code: String(err_code),
+                err_des,
+            },
+        });
+        if (dev) searchView.webContents.openDevTools();
+    });
+    searchView.webContents.on("render-process-gone", () => {
+        rendererPath2(searchView.webContents, "browser_bg.html", {
+            query: { type: "render-process-gone" },
+        });
+        if (dev) searchView.webContents.openDevTools();
+    });
+    searchView.webContents.on("unresponsive", () => {
+        rendererPath2(searchView.webContents, "browser_bg.html", {
+            query: { type: "unresponsive" },
+        });
+        if (dev) searchView.webContents.openDevTools();
+    });
+    searchView.webContents.on("responsive", () => {
+        searchView.webContents.loadURL(url);
+    });
+    searchView.webContents.on("certificate-error", () => {
+        rendererPath2(searchView.webContents, "browser_bg.html", {
+            query: { type: "certificate-error" },
+        });
+        if (dev) searchView.webContents.openDevTools();
+    });
+    return new Promise((resolve: (x: Electron.WebContents) => void) => {
+        searchView.webContents.on("did-finish-load", () => {
+            resolve(searchView.webContents);
+        });
+    });
+}
+/**
+ * 标签页事件
+ */
+function viewEvents(
+    w: BaseWindow | undefined,
+    arg:
+        | "home"
+        | "back"
+        | "forward"
+        | "reload"
+        | "stop"
+        | "browser"
+        | "add_history"
+        | "dev",
+) {
+    if (w instanceof BrowserWindow) mainSend(w.webContents, "viewEvent", [arg]);
+}
+
+mainOn("tabView", ([id, arg], e) => {
+    const mainWindow = BrowserWindow.fromWebContents(e.sender);
+    const searchWindow = searchWindowL[id];
+    if (!mainWindow) return;
+    switch (arg) {
+        case "close":
+            mainWindow.contentView.removeChildView(searchWindow);
+            searchWindow.webContents.close();
+            delete searchWindowL[id];
+            break;
+        case "top": {
+            // 有时直接把主页面当成浏览器打开，这时pid未初始化就触发top了，直接忽略
+            if (!mainWindow) return;
+            minViews(mainWindow);
+            searchWindow.setVisible(true);
+            break;
+        }
+        case "back":
+            searchWindow.webContents.goBack();
+            break;
+        case "forward":
+            searchWindow.webContents.goForward();
+            break;
+        case "stop":
+            searchWindow.webContents.stop();
+            break;
+        case "reload":
+            searchWindow.webContents.reload();
+            break;
+        case "home":
+            minViews(mainWindow);
+            break;
+        case "dev":
+            searchWindow.webContents.openDevTools();
+            break;
+    }
+});
+
+mainOn("openUrl", ([url]) => {
+    shell.openExternal(url);
+});
+
+mainOn("tabViewSize", ([arg2], e) => {
+    const mainWindow = BrowserWindow.fromWebContents(e.sender);
+    if (!mainWindow) return;
+    const bSize = Object.values(mainWindowL).find(
+        (i) => i.win === mainWindow,
+    )?.browser;
+    if (!bSize) return;
+    bSize.bottom = arg2.bottom;
+    bSize.top = arg2.top;
+    for (const w of mainWindow.contentView.children) {
+        if (w.getBounds().width !== 0) setViewSize(w, mainWindow, bSize);
+    }
+});
+
+function setViewSize(
+    w: View,
+    window: BrowserWindow,
+    size: (typeof mainWindowL)[0]["browser"],
+) {
+    w.setBounds({
+        x: 0,
+        y: size.top,
+        width: window.getBounds().width,
+        height: window.getBounds().height - size.bottom - size.top,
+    });
+}
+
+/** 最小化某个窗口的所有标签页 */
+function minViews(mainWindow?: BrowserWindow) {
+    if (!mainWindow) return;
+    for (const v of mainWindow.contentView.children) {
+        v.setVisible(false);
+    }
+}
+
+/** 生成一个文件名 */
+function getFileName() {
+    const saveNameTime = time_format(
+        store.get("保存名称.时间"),
+        new Date(),
+    ).replace("\\", "");
+    const fileName =
+        store.get("保存名称.前缀") + saveNameTime + store.get("保存名称.后缀");
+    return fileName;
+}
+
+/** 提示保存成功 */
+function noti(filePath: string) {
+    const notification = new Notification({
+        title: `${app.name} ${t("保存文件成功")}`,
+        body: `${t("已保存文件到")} ${filePath}`,
+        icon: notifyIcon,
+    });
+    notification.on("click", () => {
+        shell.showItemInFolder(filePath);
+    });
+    notification.show();
+}
+
+mainOn("noti", ([{ title, body }]) => {
+    const notification = new Notification({
+        title: `${app.name} ${title}`,
+        body: body,
+        icon: notifyIcon,
+    });
+    notification.show();
+});
+
+mainOn("windowIgnoreMouse", ([arg], e) => {
+    BrowserWindow.fromWebContents(e.sender)?.setIgnoreMouseEvents(arg);
+});
+mainOn("windowClose", (_, e) => {
+    BrowserWindow.fromWebContents(e.sender)?.close();
+});
+mainOn("windowMax", (_, e) => {
+    BrowserWindow.fromWebContents(e.sender)?.maximize();
+});
+mainOn("windowTop", ([top], e) => {
+    BrowserWindow.fromWebContents(e.sender)?.setAlwaysOnTop(top);
+});
+mainOn("windowTopest", ([top], e) => {
+    BrowserWindow.fromWebContents(e.sender)?.setAlwaysOnTop(
+        top,
+        "screen-saver",
+    );
+});
+mainOn("windowShow", (_, e) => {
+    BrowserWindow.fromWebContents(e.sender)?.show();
+});
+
+mainOn("save_file_path", async ([type, isVideo]) => {
+    const savedPath = isVideo
+        ? store.getString("保存.保存路径.视频")
+        : store.getString("保存.保存路径.图片");
+    const defaultPath = join(savedPath, `${getFileName()}.${type}`);
+    if (store.get("保存.快速保存") && savedPath) {
+        return defaultPath;
+    }
+    const x = await dialog.showSaveDialog({
+        title: t("选择要保存的位置"),
+        defaultPath: savedPath ? defaultPath : undefined,
+        filters: [
+            { name: isVideo ? t("视频") : t("图像"), extensions: [type] },
+        ],
+    });
+    return x.filePath;
+});
+
+mainOn("ok_save", ([arg, isVideo]) => {
+    if (typeof arg !== "string" || !arg) return;
+    noti(arg);
+    if (isVideo) {
+        store.set("保存.保存路径.视频", dirname(arg));
+    } else {
+        store.set("保存.保存路径.图片", dirname(arg));
+    }
+});
+
+mainOn("selectPath", async ([path, p]) => {
+    try {
+        const x = await dialog.showOpenDialog({
+            title: t("选择文件"),
+            defaultPath:
+                typeof path === "string" && path
+                    ? path
+                    : app.getPath("pictures"),
+            properties: p,
+        });
+        return x.filePaths[0] || "";
+    } catch (error) {
+        return "";
+    }
+});
+
+mainOn("runPath", () => {
+    return runPath;
+});
+mainOn("userDataPath", () => {
+    return app.getPath("userData");
+});
+
+mainOn("systemLan", () => {
+    return matchBestLan();
+});
+mainOn("feedbackBug", ([arg]) => {
+    return feedbackUrl(arg);
+});
+mainOn("feedbackFeature", ([arg]) => {
+    return feedbackUrl2(arg);
+});
+
+mainOn("getScreens", () => {
+    return screen.getAllDisplays();
+});
+
+mainOn("dbusSessionBusPath", () => {
+    return getSessionBusPath();
+});
+
+mainOn("recordMemWarning", () => {
+    new Notification({
+        title: `${app.name} ${t("录屏内存不足")}`,
+        body: t("将自动结束录屏"),
+    }).show();
+});
+
+mainOn("getLogs", () => {
+    return logs;
+});
+
+nativeTheme.on("updated", () => {
+    setTray();
+});
+
+function ensureDefaultOfflineTranslator() {
+    const translators = store.get("翻译.翻译器");
+    if (!Array.isArray(translators) || translators.length === 0) {
+        store.set("翻译.翻译器", [
+            {
+                id: "bergamot-default",
+                name: t("Firefox 本地离线翻译"),
+                type: "bergamot",
+                keys: {},
+            },
+            {
+                id: "free-default",
+                name: t("内置免费翻译（免 API）"),
+                type: "free",
+                keys: {},
+            },
+        ]);
+    } else if (!translators.some((item) => item.type === "free")) {
+        store.set("翻译.翻译器", [
+            ...translators,
+            {
+                id: "free-default",
+                name: t("内置免费翻译（免 API）"),
+                type: "free",
+                keys: {},
+            },
+        ]);
+    }
+    if (
+        process.platform === "win32" &&
+        (!store.get("AI.运行后端") || store.get("AI.运行后端") === "cpu")
+    ) {
+        store.set("AI.运行后端", "directml");
+    }
+    if (!store.get("屏幕翻译.语言.from")) {
+        store.set("屏幕翻译.语言.from", "auto");
+    }
+    if (!store.get("屏幕翻译.语言.to")) {
+        store.set("屏幕翻译.语言.to", matchBestLan());
+    }
+    const theme = store.get("全局.主题");
+    if (
+        theme?.light?.emphasis === "#D7E3F8" &&
+        theme?.dark?.emphasis === "#3B4858"
+    ) {
+        store.set("全局.主题", defaultSetting.全局.主题);
+        if (store.get("全局.不透明度") === 0.4) {
+            store.set("全局.不透明度", defaultSetting.全局.不透明度);
+        }
+        if (store.get("全局.模糊") === 25) {
+            store.set("全局.模糊", defaultSetting.全局.模糊);
+        }
+    }
+    if (
+        store.get("工具栏.按钮大小") === 48 &&
+        store.get("工具栏.按钮图标比例") === 0.7
+    ) {
+        store.set("工具栏.按钮大小", defaultSetting.工具栏.按钮大小);
+        store.set("工具栏.按钮图标比例", defaultSetting.工具栏.按钮图标比例);
+        const oldOrder = [
+            "close",
+            "screens",
+            "ocr",
+            "search",
+            "QR",
+            "open",
+            "ding",
+            "dingLive",
+            "record",
+            "long",
+            "translate",
+            "editor",
+            "copy",
+            "save",
+        ];
+        if (
+            JSON.stringify(store.get("工具栏.功能")) ===
+            JSON.stringify(oldOrder)
+        ) {
+            store.set("工具栏.功能", defaultSetting.工具栏.功能);
+        }
+    }
+    if (store.get("框选.颜色.遮罩") === "#0008") {
+        store.set("框选.颜色.遮罩", defaultSetting.框选.颜色.遮罩);
+    }
+    if (store.get("工具栏.稍后出现") === false) {
+        store.set("工具栏.稍后出现", true);
+    }
+}
+
+function fixSettingTree() {
+    if (store.get("设置版本") === app.getVersion() && !dev) return;
+    versionTrans();
+    store.set("设置版本", app.getVersion());
+    if (store.get("网络.github镜像.启用") === undefined)
+        store.set("网络.github镜像.启用", matchBestLan() === "zh-HANS");
+}
+
+function versionTrans() {
+    const version = store.get("设置版本");
+    if (store.get("屏幕翻译.语言.from") === "") {
+        store.set("屏幕翻译.语言.from", "auto");
+    }
+    if (store.get("屏幕翻译.语言.to") === "") {
+        store.set("屏幕翻译.语言.to", matchBestLan());
+    }
+    if (versionCompare(version, "15.7.1") <= 0) {
+        if (store.get("网络.github镜像.api") === "https://api.kkgithub.com/") {
+            store.set("网络.github镜像.api", githubMirrorList.api[0]);
+        }
+        if (
+            store.get("网络.github镜像.base") ===
+            "https://gh.llkk.cc/https://github.com/"
+        ) {
+            store.set("网络.github镜像.base", githubMirrorList.base[0]);
+        }
+    }
+    if (versionCompare(version, "15.6.1") <= 0) {
+        const list = store.get("工具栏.功能");
+        if (!list.includes("dingLive")) {
+            const i = list.indexOf("ding");
+            list.splice(i === -1 ? list.length : i + 1, 0, "dingLive");
+            store.set("工具栏.功能", list);
+        }
+    }
+    if (versionCompare(version, "14.1.0") <= 0) {
+        const oldSetting = store.get("贴图.窗口.变换");
+        if (typeof oldSetting === "string") {
+            store.set("贴图.窗口.变换", [oldSetting]);
+        }
+    }
+    if (versionCompare(version, "14.6.4") <= 0) {
+        const ocr = store.get("离线OCR") as unknown as [
+            string,
+            string,
+            string,
+            string,
+        ][];
+        const newOcr: {
+            id: string;
+            name: string;
+            detPath: string;
+            recPath: string;
+            dicPath: string;
+            scripts: string[];
+        }[] = [];
+        for (const i of ocr) {
+            newOcr.push({
+                id: i[0] === "默认" ? "0" : i[0],
+                name: i[0],
+                detPath: i[1],
+                recPath: i[2],
+                dicPath: i[3],
+                scripts: [],
+            });
+        }
+        store.set("离线OCR", newOcr);
+        if (store.get("OCR.类型") === "默认") {
+            store.set("OCR.类型", "0");
+        }
+    }
+}
+
+function versionCompare(v1: string, v2: string) {
+    const v1Arr = v1.split("-")[0].split(".");
+    const v2Arr = v2.split("-")[0].split(".");
+    for (let i = 0; i < v1Arr.length; i++) {
+        const a = Number(v1Arr.at(i) ?? 0);
+        const b = Number(v2Arr.at(i) ?? 0);
+        if (a > b) {
+            return 1;
+        }
+        if (a < b) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+function githubPath(url: string): {
+    type: GithubUrlType;
+    path: string;
+} {
+    const u = url.replace("https://", "");
+    if (u.startsWith("api.github.com"))
+        return {
+            path: u.replace("api.github.com", ""),
+            type: "api",
+        };
+    if (u.startsWith("github.com"))
+        return { path: u.replace("github.com", ""), type: "base" };
+    return { path: url, type: "base" };
+}
+
+function githubUrl(_path: string, _type: GithubUrlType | "auto" = "auto") {
+    const enabled = store.get("网络.github镜像.启用");
+    const api =
+        store.getString("网络.github镜像.api").trim() ||
+        "https://api.github.com/";
+    const base =
+        store.getString("网络.github镜像.base").trim() || "https://github.com/";
+    function ap(x: string) {
+        return x.replace(/\/$/, "");
+    }
+    function bp(x: string) {
+        return x.replace(/^\//, "");
+    }
+    if (!enabled) {
+        if (_type === "auto") return _path;
+        return _type === "api"
+            ? `https://api.github.com/${bp(_path)}`
+            : `https://github.com/${bp(_path)}`;
+    }
+    const { path, type } =
+        _type === "auto" ? githubPath(_path) : { path: _path, type: _type };
+    if (type === "api") {
+        return `${ap(api)}/${bp(path)}`;
+    }
+    if (type === "base") {
+        return `${ap(base)}/${bp(path)}`;
+    }
+    return path;
+}
+
+mainOn("githubUrl", ([p, t]) => githubUrl(p, t));
+
+function checkUpdate(s手动检查?: boolean) {
+    const version = store.get("设置版本");
+    const m = store.get("更新.模式");
+    fetch(githubUrl("repos/xiaoxi303/PunPuin/releases", "api"))
+        .then((v) => v.json())
+        .then(
+            (
+                re: {
+                    tag_name: string;
+                    name: string;
+                    html_url: string;
+                    draft: boolean;
+                    prerelease: boolean;
+                }[],
+            ) => {
+                const isDev =
+                    version.includes("beta") ||
+                    version.includes("alpha") ||
+                    m === "dev";
+                const first = re
+                    .filter((r) => /^\d/.test(r.tag_name))
+                    .find((r) => (isDev ? true : !r.draft && !r.prerelease));
+                if (!first) {
+                    if (s手动检查) showVersion("err");
+                    return;
+                }
+                let update = false;
+                const firstName = first.name;
+                if (m === "dev") {
+                    if (firstName !== version) update = true;
+                } else if (m === "小版本" || s手动检查) {
+                    if (versionCompare(firstName, version) > 0) update = true;
+                } else {
+                    if (
+                        versionCompare(
+                            firstName.split(".").at(0)!,
+                            version.split(".").at(0)!,
+                        ) > 0
+                    )
+                        update = true;
+                }
+                if (store.get("更新.忽略版本") !== firstName)
+                    if (update) {
+                        showVersion({
+                            v: first.name,
+                            url: first.html_url,
+                        });
+                    } else if (s手动检查) {
+                        showVersion();
+                    }
+            },
+        )
+        .catch(() => {
+            if (s手动检查) showVersion("err");
+        });
+}
+
+function showVersion(arg?: { v: string; url: string } | "err") {
+    let title = "";
+    let b = "";
+    let url = "https://github.com/xiaoxi303/PunPuin/releases";
+    if (arg) {
+        if (arg === "err") {
+            title = t("无法检查更新");
+            b = t("请检查网络，稍后重试");
+        } else {
+            title = `${app.name} ${t("有新版本：")}${arg.v}`;
+            b = `${t("点击下载")}`;
+            url = arg.url;
+        }
+    } else {
+        title = t("已是最新版本");
+    }
+    const notification = new Notification({
+        title,
+        body: b,
+        icon: notifyIcon,
+    });
+    notification.on("click", () => {
+        shell.openExternal(url);
+    });
+    notification.show();
+}
+
+if (store.get("更新.频率") === "start") checkUpdate();

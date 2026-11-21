@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E40AF"/>
+      <stop offset="52%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="glossGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.26"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sparkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FEF08A"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#0B1940" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded Squircle Base -->
+  <rect x="44" y="44" width="936" height="936" rx="224" fill="url(#bgGrad)"/>
+  <rect x="44" y="44" width="936" height="936" rx="224" fill="url(#glossGrad)"/>
+  <rect x="52" y="52" width="920" height="920" rx="216" fill="none" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="10"/>
+
+  <!-- Viewfinder Crop Corners -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="58" stroke-linecap="round" stroke-linejoin="round" filter="url(#softShadow)">
+    <!-- Top-left -->
+    <path d="M 224 356 L 224 268 Q 224 224 268 224 L 356 224"/>
+    <!-- Top-right -->
+    <path d="M 668 224 L 756 224 Q 800 224 800 268 L 800 356"/>
+    <!-- Bottom-left -->
+    <path d="M 224 668 L 224 756 Q 224 800 268 800 L 356 800"/>
+    <!-- Bottom-right -->
+    <path d="M 668 800 L 756 800 Q 800 800 800 756 L 800 668"/>
+  </g>
+
+  <!-- Stylized Geometric 'P' Lens Emblem -->
+  <g filter="url(#softShadow)">
+    <!-- Outer P stem & bowl -->
+    <path d="M 410 344 L 548 344 C 632 344 686 394 686 472 C 686 550 632 600 548 600 L 478 600 L 478 686 C 478 708 460 724 438 724 L 410 724 C 388 724 372 708 372 686 L 372 382 C 372 360 388 344 410 344 Z M 478 430 L 478 514 L 538 514 C 570 514 590 498 590 472 C 590 446 570 430 538 430 Z"
+          fill="#FFFFFF" fill-rule="evenodd"/>
+    <!-- Playful Focus Dot inside P lens -->
+    <circle cx="536" cy="472" r="30" fill="#2563EB"/>
+    <circle cx="545" cy="462" r="10" fill="#BAE6FD"/>
+  </g>
+
+  <!-- AI / OCR Sparkle Accent -->
+  <path d="M 738 282 C 745 322 758 335 798 342 C 758 349 745 362 738 402 C 731 362 718 349 678 342 C 718 335 731 322 738 282 Z"
+        fill="url(#sparkGrad)"/>
+</svg>

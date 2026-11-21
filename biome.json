@@ -1,0 +1,53 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+    "vcs": {
+        "enabled": true,
+        "clientKind": "git",
+        "useIgnoreFile": true
+    },
+    "files": {
+        "includes": [
+            "**",
+            "!**/assets",
+            "!docs",
+            "!script/make_aur/e-search",
+            "!src/main/bergamot-translator.js",
+            "!test/test_index/test_results.json"
+        ]
+    },
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
+    },
+    "formatter": {
+        "indentStyle": "space",
+        "indentWidth": 4
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "preset": "recommended",
+            "complexity": {
+                "noImportantStyles": "off",
+                "useDateNow": "error"
+            },
+            "correctness": {
+                "noUnusedFunctionParameters": "off",
+                "noUnusedImports": "off",
+                "noUnusedVariables": "off",
+                "useValidForDirection": "error"
+            },
+            "style": {
+                "noDescendingSpecificity": "off",
+                "noNonNullAssertion": "off"
+            },
+            "suspicious": {
+                "noTemplateCurlyInString": "off",
+                "noTsIgnore": "off"
+            }
+        }
+    }
+}
