@@ -280,6 +280,7 @@ type Message = {
             to: string;
             version: string;
             size: number;
+            bundled?: boolean;
         }[];
     };
     bergamot_remove_model: (data: { from: string; to: string }) => void;

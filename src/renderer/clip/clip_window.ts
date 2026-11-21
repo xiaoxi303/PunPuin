@@ -615,11 +615,15 @@ function ensureImageEdge() {
 }
 
 function getWin() {
+    for (let i = edgeRect.length - 1; i >= 0; i--) {
+        if (edgeRect[i].type === "system") edgeRect.splice(i, 1);
+    }
     for (const win of windows) {
         const x = Math.max(win.rect.x, 0);
         const y = Math.max(win.rect.y, 0);
         const w = Math.min(win.rect.w, mainCanvas.width - x);
         const h = Math.min(win.rect.h, mainCanvas.height - y);
+        if (w < 12 || h < 12) continue;
         edgeRect.push({
             x: x,
             y: y,
@@ -2227,13 +2231,18 @@ function drawClip() {
     else drawClipPoly(freeSelect);
 }
 
+function hideHoverBox() {
+    hoverBoxVisible = false;
+    clipHoverBox.el.classList.remove("clip-hover-visible", "clip-hover-snap");
+}
+
 function cleanClip() {
     showMask(null);
     edgeKey = "";
     activeHoverRect = null;
     hoverListKey = "";
     hoverLayerIndex = 0;
-    clipHoverBox.el.style.opacity = "0";
+    hideHoverBox();
     clipRectBorder.el.classList.remove("clip-locked");
     setClipAnim(false);
     for (const el of clipCkx) setElBox(el.el, 0, 0, 0, 0);
@@ -2312,12 +2321,17 @@ function inEdge(p: editor_position) {
 /** 更新唯一的智能识别高亮框与聚光遮罩（持久化元素实现平滑动画） */
 function setEdge(rects: rect[]) {
     const target = rects[0] ?? null;
-    const key = `${editorP.zoom}|${editorP.x}|${editorP.y}|${target ? target.join(",") : "none"}`;
+    const layerCount = rectInRect.length;
+    const layerIdx =
+        layerCount > 0
+            ? ((hoverLayerIndex % layerCount) + layerCount) % layerCount
+            : 0;
+    const key = `${editorP.zoom}|${editorP.x}|${editorP.y}|${target ? target.join(",") : "none"}|${layerIdx}/${layerCount}`;
     if (key === edgeKey) return;
     edgeKey = key;
 
     if (!target || rectSelect || selecting || drawingMode) {
-        clipHoverBox.el.style.opacity = "0";
+        hideHoverBox();
         if (!rectSelect && !selecting && !drawingMode) {
             setClipAnim(true);
             drawMaskCutout(0, 0, mainCanvas.width, mainCanvas.height);
@@ -2335,10 +2349,25 @@ function setEdge(rects: rect[]) {
     const bw = Math.max(0, hxr - hxl);
     const bh = Math.max(0, hyb - hyt);
     if (bw > 2 && bh > 2) {
-        setElBox(clipHoverBox.el, hxl, hyt, bw, bh);
-        clipHoverBox.el.style.opacity = "1";
+        if (!hoverBoxVisible) {
+            clipHoverBox.el.classList.add("clip-hover-snap");
+            setElBox(clipHoverBox.el, hxl, hyt, bw, bh);
+            void clipHoverBox.el.offsetWidth;
+            clipHoverBox.el.classList.remove("clip-hover-snap");
+            hoverBoxVisible = true;
+        } else {
+            setElBox(clipHoverBox.el, hxl, hyt, bw, bh);
+        }
+        clipHoverBox.el.classList.add("clip-hover-visible");
+        const w = Math.round(target[2]);
+        const h = Math.round(target[3]);
+        clipHoverBadge.el.textContent =
+            layerCount > 1
+                ? `${w} × ${h}  ·  ${t("滚轮切换")} ${layerIdx + 1}/${layerCount}`
+                : `${w} × ${h}`;
+        clipHoverBadge.el.classList.toggle("inside", hyt < 34);
     } else {
-        clipHoverBox.el.style.opacity = "0";
+        hideHoverBox();
     }
 }
 
@@ -2347,7 +2376,7 @@ function renderClip(e: MouseEvent) {
         moved = true;
         rectSelect = true; // 按下并移动，肯定手动选好选区了
         setClipAnim(false);
-        clipHoverBox.el.style.opacity = "0";
+        hideHoverBox();
     }
 
     if (selecting) {
@@ -2370,7 +2399,7 @@ function renderClip(e: MouseEvent) {
     // 仅选区变化或遮罩形态变化时重绘遮罩
     const mask = isRect ? "rect" : freeSelect.length >= 2 ? "poly" : null;
     if (selecting || moving || maskType !== mask) drawClip();
-    inEdge({ x: e.offsetX, y: e.offsetY });
+    inEdge(src2pXYdb(e2srcPoint(e)));
     ckx(e2srcPoint(e));
 
     if (!selecting && !moving) {
@@ -4612,7 +4641,10 @@ const clipEdge = view().style({
     width: "100%",
     height: "100%",
 });
-const clipHoverBox = view().attr({ id: "clip_hover_box" });
+const clipHoverBadge = view().attr({ id: "clip_hover_badge" });
+const clipHoverBox = view()
+    .attr({ id: "clip_hover_box" })
+    .add(clipHoverBadge.el);
 const clipRectBorder = view()
     .attr({ id: "clip_rect_border" })
     .add(
@@ -4825,6 +4857,8 @@ let rectInRect: rect[] = [];
 let activeHoverRect: rect | null = null;
 let hoverLayerIndex = 0;
 let hoverListKey = "";
+let hoverBoxVisible = false;
+let mouseMoveRaf = 0;
 
 const mouseBarW =
     Math.max(
@@ -5027,7 +5061,7 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
         hoverLayerIndex = 0;
         hoverListKey = "";
         edgeKey = "";
-        clipHoverBox.el.style.opacity = "0";
+        hideHoverBox();
         isShowBars = false;
         showBars(false);
         whEl.style({ opacity: "0", pointerEvents: "none" });
@@ -5590,7 +5624,7 @@ hotkeys("s", () => {
     edgeKey = "";
     hoverListKey = "";
     hoverLayerIndex = 0;
-    clipHoverBox.el.style.opacity = "0";
+    hideHoverBox();
     isShowBars = false;
     showBars(false);
     setClipAnim(true);
@@ -5711,8 +5745,9 @@ clipEl.ondblclick = () => {
 
 document.onmousemove = (e) => {
     nowMouseE = e;
-    // 一帧内的多次移动只渲染最后一次
-    requestAnimationFrame(() => {
+    if (mouseMoveRaf) return;
+    mouseMoveRaf = requestAnimationFrame(() => {
+        mouseMoveRaf = 0;
         const ev = nowMouseE;
         renderClip(ev);
         if (!rightKey) {

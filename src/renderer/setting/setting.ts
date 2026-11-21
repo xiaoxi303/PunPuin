@@ -4818,19 +4818,25 @@ function openBergamotDialog() {
     const download = button(txt(t("下载")));
     const clearBtn = button(txt(t("清除缓存")));
     const progressMap = new Map<string, { received: number; total?: number }>();
+    const formatIpcError = (error: unknown) =>
+        String(error)
+            .replace(/^Error:\s*Error invoking remote method '[^']+':\s*/i, "")
+            .replace(/^(TypeError|Error):\s*/i, "");
+
     const bar = view().style({
         width: "0%",
         height: "100%",
-        backgroundColor: cssColor.main,
-        transition: "width .2s",
+        backgroundColor: "var(--emphasis-color)",
+        borderRadius: "999px",
+        transition: "width 0.2s ease",
     });
     const barTrack = view()
         .style({
             overflow: "hidden",
             width: "100%",
-            height: "16px",
-            borderRadius: "var(--border-radius)",
-            backgroundColor: cssColor.bb,
+            height: "10px",
+            borderRadius: "999px",
+            backgroundColor: "var(--border-color)",
         })
         .add(bar);
 
@@ -4859,9 +4865,10 @@ function openBergamotDialog() {
         }
         if (total > 0) {
             setBar(received / total);
-            setStatus(
-                `${t("下载中...")} ${Math.floor((received / total) * 100)}%`,
-            );
+            const pct = Math.min(100, Math.floor((received / total) * 100));
+            const recMb = (received / 1e6).toFixed(1);
+            const totMb = (total / 1e6).toFixed(1);
+            setStatus(`${t("下载中...")} ${pct}% (${recMb} / ${totMb} MB)`);
         } else {
             const current = progressMap.get(data.file);
             if (current?.total) {
@@ -4887,7 +4894,7 @@ function openBergamotDialog() {
                         : t("未下载"),
             );
         } catch (error) {
-            setStatus(`${t("检查失败")} ${String(error)}`);
+            setStatus(`${t("检查失败")}：${formatIpcError(error)}`);
         }
     };
 
@@ -4973,15 +4980,36 @@ function openBergamotDialog() {
                                     model.size / 1e6
                                 ).toFixed(1)}MB`,
                             ).style({ opacity: 0.6 }),
-                            button(txt(t("删除"))).on("click", async () => {
-                                if (!(await confirm(t("确定删除这个模型？"))))
-                                    return;
-                                await renderInvoke("bergamot_remove_model", [
-                                    { from: model.from, to: model.to },
-                                ]);
-                                await refreshModels();
-                                await refreshStatus();
-                            }),
+                            model.bundled
+                                ? txt(t("已内置")).style({
+                                      fontSize: "12px",
+                                      padding: "2px 8px",
+                                      borderRadius: "999px",
+                                      backgroundColor: "var(--accent-soft)",
+                                      color: "var(--emphasis-color)",
+                                  })
+                                : button(txt(t("删除"))).on(
+                                      "click",
+                                      async () => {
+                                          if (
+                                              !(await confirm(
+                                                  t("确定删除这个模型？"),
+                                              ))
+                                          )
+                                              return;
+                                          await renderInvoke(
+                                              "bergamot_remove_model",
+                                              [
+                                                  {
+                                                      from: model.from,
+                                                      to: model.to,
+                                                  },
+                                              ],
+                                          );
+                                          await refreshModels();
+                                          await refreshStatus();
+                                      },
+                                  ),
                         ]),
                 );
             }
@@ -5019,10 +5047,10 @@ function openBergamotDialog() {
                 { from: from.gv, to: to.gv },
             ]);
             setBar(1);
-            await refreshStatus();
             await refreshModels();
+            setStatus(t("下载完成"));
         } catch (error) {
-            setStatus(`${t("下载失败")} ${String(error)}`);
+            setStatus(`${t("下载失败")}：${formatIpcError(error)}`);
         } finally {
             setBusy(false);
         }
@@ -5037,7 +5065,7 @@ function openBergamotDialog() {
             await refreshStatus();
             await refreshModels();
         } catch (error) {
-            setStatus(`${t("下载失败")} ${String(error)}`);
+            setStatus(`${t("下载失败")}：${formatIpcError(error)}`);
         } finally {
             setBusy(false);
         }
