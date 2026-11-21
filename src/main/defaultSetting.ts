@@ -209,9 +209,11 @@ const defaultSetting: setting = {
         记忆: { 开启: false, rects: {} },
         颜色: {
             遮罩: "rgba(10, 14, 24, 0.48)",
+            边框: "#2563EB",
             光标参考线: "#3B82F6",
             选区参考线: "#3B82F666",
         },
+        动画: true,
         参考线: {
             光标: false,
             选区: { x: [], y: [] },

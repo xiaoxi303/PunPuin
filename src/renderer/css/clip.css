@@ -1,5 +1,6 @@
 :root {
     --hotkey-show: none;
+    --clip-border-color: #2563eb;
 }
 body {
     --hover-color: var(--bar-hover-color) !important;
@@ -277,7 +278,9 @@ body input {
     height: auto;
     position: fixed;
     z-index: 100;
-    transition: opacity 0.18s ease;
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 #draw_main {
     display: flex;
@@ -384,23 +387,87 @@ body input {
     pointer-events: none;
 }
 
+/* 选区平滑动画（Snow Shot / PixPin 风格弹性过渡） */
+#clip_mask.clip-anim > div {
+    transition:
+        left 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+        top 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+        width 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+        height 0.17s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 唯一智能自动识别悬停高亮框 */
+#clip_hover_box {
+    box-sizing: border-box;
+    border: 2px solid var(--clip-border-color);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--clip-border-color) 7%, transparent);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.65),
+        0 0 18px color-mix(in srgb, var(--clip-border-color) 42%, transparent);
+    opacity: 0;
+    will-change: left, top, width, height, opacity;
+}
+#clip_line.clip-anim #clip_hover_box {
+    transition:
+        left 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+        top 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+        width 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+        height 0.17s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.14s ease;
+}
+
 /* 选区主题高亮边框与 8 控制点 */
 #clip_rect_border {
     box-sizing: border-box;
-    border: 2px solid var(--emphasis-color);
+    border: 2px solid var(--clip-border-color);
     box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.55),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+        0 0 0 1px rgba(255, 255, 255, 0.65),
+        0 0 14px color-mix(in srgb, var(--clip-border-color) 32%, transparent),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.22);
     display: none;
+    will-change: left, top, width, height;
+}
+#clip_line.clip-anim #clip_rect_border {
+    transition:
+        left 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+        top 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+        width 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+        height 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#clip_rect_border.clip-locked {
+    animation: clipLockPulse 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes clipLockPulse {
+    0% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.8),
+            0 0 0 0
+            color-mix(in srgb, var(--clip-border-color) 65%, transparent);
+    }
+    55% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.85),
+            0 0 22px 4px
+            color-mix(in srgb, var(--clip-border-color) 48%, transparent);
+    }
+    100% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.65),
+            0 0 14px
+            color-mix(in srgb, var(--clip-border-color) 32%, transparent),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+    }
 }
 #clip_rect_border > .clip_handle {
     width: 8px;
     height: 8px;
     border-radius: 999px;
     background: #ffffff;
-    border: 2px solid var(--emphasis-color);
+    border: 2px solid var(--clip-border-color);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
     transform: translate(-50%, -50%);
+    transition: transform 0.15s ease;
 }
 #clip_rect_border > .clip_handle.h_nw {
     left: 0;

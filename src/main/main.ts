@@ -3521,6 +3521,12 @@ function ensureDefaultOfflineTranslator() {
     if (store.get("框选.颜色.遮罩") === "#0008") {
         store.set("框选.颜色.遮罩", defaultSetting.框选.颜色.遮罩);
     }
+    if (!store.get("框选.颜色.边框")) {
+        store.set("框选.颜色.边框", defaultSetting.框选.颜色.边框);
+    }
+    if (store.get("框选.动画") === undefined) {
+        store.set("框选.动画", defaultSetting.框选.动画);
+    }
     if (store.get("工具栏.稍后出现") === false) {
         store.set("工具栏.稍后出现", true);
     }

@@ -274,6 +274,78 @@ const s: Partial<settingItem<SettingPath>> = {
                 "取色器默认格式",
             ),
     },
+    "框选.颜色.边框": {
+        name: "选区边框颜色",
+        desc: "截屏智能识别框与选区边框的高亮颜色（默认蓝色）",
+        el: () => {
+            const presets = [
+                { name: "科技蓝", color: "#2563EB" },
+                { name: "青碧", color: "#06B6D4" },
+                { name: "翠绿", color: "#10B981" },
+                { name: "紫罗兰", color: "#8B5CF6" },
+                { name: "琥珀橙", color: "#F59E0B" },
+                { name: "珊瑚红", color: "#EF4444" },
+            ];
+            const picker = xColor();
+            const wrap = view("x", "wrap").style({
+                alignItems: "center",
+                gap: "8px",
+            });
+            const swatchRow = view("x").style({
+                alignItems: "center",
+                gap: "6px",
+            });
+            const swatchEls = presets.map((item) => {
+                const sw = button()
+                    .attr({ title: item.name })
+                    .style({
+                        width: "22px",
+                        height: "22px",
+                        padding: "0",
+                        borderRadius: "999px",
+                        backgroundColor: item.color,
+                        outline: "2px solid transparent",
+                        outlineOffset: "1px",
+                    })
+                    .on("click", () => {
+                        picker.sv(item.color);
+                        updateActive(item.color);
+                        wrap.el.dispatchEvent(new CustomEvent("input"));
+                    });
+                return { color: item.color, el: sw };
+            });
+            function updateActive(val: string) {
+                const norm = (val || "").trim().toLowerCase();
+                for (const s of swatchEls) {
+                    const active = s.color.toLowerCase() === norm;
+                    s.el.style({
+                        outlineColor: active
+                            ? "var(--font-color)"
+                            : "transparent",
+                        transform: active ? "scale(1.12)" : "scale(1)",
+                    });
+                }
+            }
+            swatchRow.add(swatchEls.map((s) => s.el));
+            picker.on("input", () => {
+                updateActive(picker.gv);
+                wrap.el.dispatchEvent(new CustomEvent("input"));
+            });
+            wrap.add([swatchRow, picker]);
+            return wrap
+                .bindGet(() => picker.gv)
+                .bindSet((v: string) => {
+                    const val = v || "#2563EB";
+                    picker.sv(val);
+                    updateActive(val);
+                });
+        },
+    },
+    "框选.动画": {
+        name: "选区平滑动画",
+        desc: "悬停切换识别区域、锁定与微调选区时启用平滑过渡动画",
+        el: () => xSwitch(),
+    },
     "框选.颜色.遮罩": {
         name: "遮罩颜色",
         el: () => xColor(),
@@ -2235,6 +2307,8 @@ const main: {
             {
                 title: "框选",
                 settings: [
+                    "框选.颜色.边框",
+                    "框选.动画",
                     "框选.颜色.遮罩",
                     "显示四角坐标",
                     "框选后默认操作",

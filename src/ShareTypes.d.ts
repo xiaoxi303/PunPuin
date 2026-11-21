@@ -127,9 +127,11 @@ export interface setting {
         记忆: { 开启: boolean; rects: { [screenId: string]: number[] } };
         颜色: {
             遮罩: string;
+            边框: string;
             光标参考线: string;
             选区参考线: string;
         };
+        动画: boolean;
         参考线: {
             光标: boolean;
             选区: { x: number[]; y: number[] };

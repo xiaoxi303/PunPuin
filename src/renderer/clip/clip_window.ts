@@ -309,12 +309,15 @@ function rangeBar(
 
 function setSetting() {
     const 工具栏 = store.get("工具栏");
+    const borderColor = store.get("框选.颜色.边框") || "#2563EB";
+    选区平滑动画 = store.get("框选.动画") ?? true;
     setProperties({
         "--color-size": `${colorSize * colorISize}px`,
         "--color-i-size": `${colorISize}px`,
         "--color-i-i": `${colorSize}`,
         "--bar-size": `${工具栏.按钮大小}px`,
         "--bar-icon": `${工具栏.按钮图标比例}`,
+        "--clip-border-color": borderColor,
     });
 }
 
@@ -1954,6 +1957,7 @@ function clipStart(e: MouseEvent, inRect: boolean) {
             oldP = { x: p.x, y: p.y };
             oFinalRect = finalRect;
             moving = true;
+            setClipAnim(false);
             moveRect(oFinalRect, p, p);
         } else {
             selecting = true;
@@ -1997,9 +2001,14 @@ function pickColor(e: MouseEvent | PointerEvent) {
 function clipEnd(e: MouseEvent) {
     const p = src2pXY(e2srcPoint(e));
     selecting = false;
+    let lockedFromHover = false;
     if (isRect) {
         const r = p2Rect(rectStartE, src2cXY(e2srcPoint(e)));
-        if (rectInRect.length) {
+        if (activeHoverRect && (e.shiftKey || (!moved && down))) {
+            rectSelect = true;
+            finalRect = [...activeHoverRect] as rect;
+            lockedFromHover = true;
+        } else if (rectInRect.length) {
             let nearestL = Number.POSITIVE_INFINITY;
             let nr: rect | null = null;
             for (const rect of rectInRect) {
@@ -2025,6 +2034,7 @@ function clipEnd(e: MouseEvent) {
             if (nr && (e.shiftKey || (!moved && down))) {
                 rectSelect = true;
                 finalRect = nr;
+                lockedFromHover = true;
             } else {
                 finalRect = r;
             }
@@ -2035,8 +2045,15 @@ function clipEnd(e: MouseEvent) {
         freeSelect.push(p);
         finalRect = pointsOutRect(freeSelect);
     }
+    setEdge([]);
+    setClipAnim(lockedFromHover);
     // 此时 selecting 已为 false，选区已定，直接重绘
     drawClip();
+    if (rectSelect && 选区平滑动画) {
+        clipRectBorder.el.classList.remove("clip-locked");
+        void clipRectBorder.el.offsetWidth;
+        clipRectBorder.el.classList.add("clip-locked");
+    }
     renderClip(e);
     hisPush();
 }
@@ -2053,7 +2070,8 @@ function showMask(type: "rect" | "poly" | null) {
     const rectV = type === "rect";
     for (const el of clipMaskRect) el.el.style.display = rectV ? "" : "none";
     for (const el of clipSelectLines) el.el.style.display = rectV ? "" : "none";
-    clipRectBorder.el.style.display = rectV ? "block" : "none";
+    clipRectBorder.el.style.display =
+        rectV && (rectSelect || selecting) ? "block" : "none";
     clipMaskPoly.el.style.display = type === "poly" ? "" : "none";
 }
 
@@ -2085,13 +2103,13 @@ function drawSelectLines() {
     });
 }
 
-/** 画框(遮罩) */
-function drawClipRect() {
-    const x = finalRect[0];
-    const y = finalRect[1];
-    const width = finalRect[2];
-    const height = finalRect[3];
+function setClipAnim(enabled: boolean) {
+    const active = enabled && 选区平滑动画;
+    clipMaskLayer.el.classList.toggle("clip-anim", active);
+    clipLineLayer.el.classList.toggle("clip-anim", active);
+}
 
+function drawMaskCutout(x: number, y: number, width: number, height: number) {
     showMask("rect");
 
     // 画布在屏幕上的可见范围
@@ -2124,9 +2142,31 @@ function drawClipRect() {
         Math.max(0, hyb - hyt),
     );
 
+    return { hxl, hyt, hxr, hyb };
+}
+
+/** 画框(遮罩) */
+function drawClipRect() {
+    const hoverSpotlight = Boolean(
+        activeHoverRect &&
+            ((!rectSelect && !selecting) ||
+                (selecting &&
+                    !moved &&
+                    finalRect[2] === 0 &&
+                    finalRect[3] === 0)),
+    );
+    const targetRect =
+        hoverSpotlight && activeHoverRect ? activeHoverRect : finalRect;
+    const { hxl, hyt, hxr, hyb } = drawMaskCutout(
+        targetRect[0],
+        targetRect[1],
+        targetRect[2],
+        targetRect[3],
+    );
+
     const bw = Math.max(0, hxr - hxl);
     const bh = Math.max(0, hyb - hyt);
-    if ((rectSelect || selecting) && bw > 2 && bh > 2) {
+    if (!hoverSpotlight && (rectSelect || selecting) && bw > 2 && bh > 2) {
         clipRectBorder.el.style.display = "block";
         setElBox(clipRectBorder.el, hxl, hyt, bw, bh);
     } else {
@@ -2190,6 +2230,12 @@ function drawClip() {
 function cleanClip() {
     showMask(null);
     edgeKey = "";
+    activeHoverRect = null;
+    hoverListKey = "";
+    hoverLayerIndex = 0;
+    clipHoverBox.el.style.opacity = "0";
+    clipRectBorder.el.classList.remove("clip-locked");
+    setClipAnim(false);
     for (const el of clipCkx) setElBox(el.el, 0, 0, 0, 0);
     clipEdge.el.replaceChildren();
 }
@@ -2211,56 +2257,97 @@ function refreshEdgeHint() {
 }
 
 /**
- * 自动框选提示
+ * 自动框选提示（仅高亮当前鼠标下最精准的 1 个区域，支持滚轮切换层级与平滑动画）
  */
 function inEdge(p: editor_position) {
-    if (rectSelect || drawingMode) {
+    if (rectSelect || selecting || drawingMode) {
+        activeHoverRect = null;
         setEdge([]);
         return;
     }
 
-    rectInRect = [];
+    const candidates: rect[] = [];
     for (const i of edgeRect) {
         if (!识别窗口 && i.type === "system") continue;
+        if (i.width < 12 || i.height < 12) continue;
         const x0 = i.x;
         const y0 = i.y;
         const x1 = i.x + i.width;
         const y1 = i.y + i.height;
         if (x0 < p.x && p.x < x1 && y0 < p.y && p.y < y1) {
-            rectInRect.push([i.x, i.y, i.width, i.height]);
+            candidates.push([i.x, i.y, i.width, i.height]);
         }
     }
-    setEdge(rectInRect);
+    // 按面积从小到大排序并去重，优先选中最贴合鼠标位置的单个元素/窗口
+    candidates.sort((a, b) => a[2] * a[3] - b[2] * b[3]);
+    const dedup: rect[] = [];
+    for (const c of candidates) {
+        const dup = dedup.some(
+            (e) =>
+                Math.abs(e[0] - c[0]) <= 4 &&
+                Math.abs(e[1] - c[1]) <= 4 &&
+                Math.abs(e[2] - c[2]) <= 4 &&
+                Math.abs(e[3] - c[3]) <= 4,
+        );
+        if (!dup) dedup.push(c);
+    }
+
+    const listKey = dedup.map((r) => r.join(",")).join(";");
+    if (listKey !== hoverListKey) {
+        hoverListKey = listKey;
+        hoverLayerIndex = 0;
+    }
+    rectInRect = dedup;
+    if (dedup.length === 0) {
+        activeHoverRect = null;
+        setEdge([]);
+    } else {
+        const idx =
+            ((hoverLayerIndex % dedup.length) + dedup.length) % dedup.length;
+        activeHoverRect = dedup[idx];
+        setEdge([activeHoverRect]);
+    }
 }
 
-/** 提示框没变化就不动 DOM */
+/** 更新唯一的智能识别高亮框与聚光遮罩（持久化元素实现平滑动画） */
 function setEdge(rects: rect[]) {
-    const w = lineW();
-    const key = `${w}|${editorP.zoom}|${editorP.x}|${editorP.y}|${rects.map((i) => i.join(",")).join(";")}`;
+    const target = rects[0] ?? null;
+    const key = `${editorP.zoom}|${editorP.x}|${editorP.y}|${target ? target.join(",") : "none"}`;
     if (key === edgeKey) return;
     edgeKey = key;
-    clipEdge.el.replaceChildren(
-        ...rects.map((i) => {
-            const el = document.createElement("div");
-            setScreenRect(
-                el,
-                src2screenX(i[0]),
-                src2screenY(i[1]),
-                src2screenX(i[0] + i[2]),
-                src2screenY(i[1] + i[3]),
-            );
-            el.style.boxSizing = "border-box";
-            el.style.border = `${w}px solid #000`;
-            el.style.outline = `${w}px solid #fff`;
-            return el;
-        }),
+
+    if (!target || rectSelect || selecting || drawingMode) {
+        clipHoverBox.el.style.opacity = "0";
+        if (!rectSelect && !selecting && !drawingMode) {
+            setClipAnim(true);
+            drawMaskCutout(0, 0, mainCanvas.width, mainCanvas.height);
+        }
+        return;
+    }
+
+    setClipAnim(true);
+    const { hxl, hyt, hxr, hyb } = drawMaskCutout(
+        target[0],
+        target[1],
+        target[2],
+        target[3],
     );
+    const bw = Math.max(0, hxr - hxl);
+    const bh = Math.max(0, hyb - hyt);
+    if (bw > 2 && bh > 2) {
+        setElBox(clipHoverBox.el, hxl, hyt, bw, bh);
+        clipHoverBox.el.style.opacity = "1";
+    } else {
+        clipHoverBox.el.style.opacity = "0";
+    }
 }
 
 function renderClip(e: MouseEvent) {
     if (down) {
         moved = true;
         rectSelect = true; // 按下并移动，肯定手动选好选区了
+        setClipAnim(false);
+        clipHoverBox.el.style.opacity = "0";
     }
 
     if (selecting) {
@@ -2298,7 +2385,10 @@ function renderClip(e: MouseEvent) {
 
 // 大小栏
 function whBar(finalRect: rect) {
-    if (!rectSelect && !selecting) {
+    if (
+        (!rectSelect && !selecting) ||
+        (finalRect[2] === 0 && finalRect[3] === 0)
+    ) {
         whEl.style({ opacity: "0", pointerEvents: "none" });
         return;
     }
@@ -3303,9 +3393,13 @@ function showBars(b: boolean) {
         if (b) {
             i.style.pointerEvents = "";
             i.style.opacity = "";
+            i.style.transform = "";
         } else {
             i.style.pointerEvents = "none";
             i.style.opacity = "0";
+            i.style.transform = 选区平滑动画
+                ? "translateY(6px) scale(0.97)"
+                : "";
         }
     }
     if (b) refreshPropertyPanel();
@@ -3777,6 +3871,7 @@ const 记忆框选值 = store.get("框选.记忆.rects") as {
     [id: string]: rect;
 };
 const 识别窗口 = store.get("框选.识别窗口");
+let 选区平滑动画 = store.get("框选.动画") ?? true;
 const bSize = store.get("工具栏.按钮大小");
 
 const g光标参考线 = store.get("框选.参考线.光标");
@@ -4517,6 +4612,7 @@ const clipEdge = view().style({
     width: "100%",
     height: "100%",
 });
+const clipHoverBox = view().attr({ id: "clip_hover_box" });
 const clipRectBorder = view()
     .attr({ id: "clip_rect_border" })
     .add(
@@ -4527,6 +4623,7 @@ const clipRectBorder = view()
 clipMaskLayer.add([...clipMaskRect.map((i) => i.el), clipMaskPoly.el]);
 clipLineLayer.add([
     ...clipSelectLines.map((i) => i.el),
+    clipHoverBox.el,
     clipRectBorder.el,
     clipEdge.el,
     ...clipCkx.map((i) => i.el),
@@ -4725,6 +4822,9 @@ let /**鼠标是否按住 */ down = false;
 let /**是否选好了选区，若手动选好，自动框选提示关闭 */ rectSelect = false;
 
 let rectInRect: rect[] = [];
+let activeHoverRect: rect | null = null;
+let hoverLayerIndex = 0;
+let hoverListKey = "";
 
 const mouseBarW =
     Math.max(
@@ -4921,7 +5021,13 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
         canvas: fabricCanvas.toJSON(),
     });
 
+    setSetting();
     if (!rectSelect) {
+        activeHoverRect = null;
+        hoverLayerIndex = 0;
+        hoverListKey = "";
+        edgeKey = "";
+        clipHoverBox.el.style.opacity = "0";
         isShowBars = false;
         showBars(false);
         whEl.style({ opacity: "0", pointerEvents: "none" });
@@ -5010,6 +5116,22 @@ document.onwheel = (e) => {
     )
         return;
     if (longRunning) return;
+
+    if (
+        !rectSelect &&
+        !selecting &&
+        !drawingMode &&
+        !e.ctrlKey &&
+        rectInRect.length > 1
+    ) {
+        hoverLayerIndex += e.deltaY > 0 ? 1 : -1;
+        const idx =
+            ((hoverLayerIndex % rectInRect.length) + rectInRect.length) %
+            rectInRect.length;
+        activeHoverRect = rectInRect[idx];
+        setEdge([activeHoverRect]);
+        return;
+    }
 
     document.body.classList.add("editor_bg");
 
@@ -5364,6 +5486,7 @@ document.body.onkeydown = (e) => {
                     x = op.offsetX - d;
                     break;
             }
+            setClipAnim(true);
             if (isRect) {
                 moveRect(finalRect, { x: op.offsetX, y: op.offsetY }, { x, y });
             } else {
@@ -5463,8 +5586,14 @@ document.onmouseup = (e) => {
 hotkeys("s", () => {
     if (drawingMode) return;
     rectSelect = false;
+    activeHoverRect = null;
+    edgeKey = "";
+    hoverListKey = "";
+    hoverLayerIndex = 0;
+    clipHoverBox.el.style.opacity = "0";
     isShowBars = false;
     showBars(false);
+    setClipAnim(true);
     finalRect = [0, 0, mainCanvas.width, mainCanvas.height];
     drawClipRect();
     ensureImageEdge();
