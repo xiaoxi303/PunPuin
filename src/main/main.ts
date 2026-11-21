@@ -1316,10 +1316,13 @@ const getClipWin = async () => {
 };
 /** 初始化截屏后台窗口 */
 function createClipWindow() {
+    const primary = screen.getPrimaryDisplay();
     const _clipWindow = new BrowserWindow({
         icon: theIcon,
-        width: screen.getPrimaryDisplay().workAreaSize.width,
-        height: screen.getPrimaryDisplay().workAreaSize.height,
+        x: primary.bounds.x,
+        y: primary.bounds.y,
+        width: primary.bounds.width,
+        height: primary.bounds.height,
         show: false,
         alwaysOnTop: !dev, // 为了方便调试，调试模式就不居上了
         fullscreenable: true,
@@ -1335,7 +1338,7 @@ function createClipWindow() {
             nodeIntegration: true,
             contextIsolation: false,
             backgroundThrottling: false,
-            zoomFactor: store.get("全局.缩放") || 1.0,
+            zoomFactor: 1.0,
         },
     });
 
@@ -1924,9 +1927,12 @@ async function fullScreen(displayId?: number) {
             : undefined) ??
         screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const win = await getClipWin();
+    win.webContents.setZoomFactor(1.0);
     win.setBounds({
         x: nearestScreen.bounds.x,
         y: nearestScreen.bounds.y,
+        width: nearestScreen.bounds.width,
+        height: nearestScreen.bounds.height,
     });
     win.show();
     win.setSimpleFullScreen(true);

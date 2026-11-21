@@ -343,6 +343,9 @@ body input {
 
 #editor {
     position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1;
     transform-origin: 0% 0%;
 }
 #editor > * {
@@ -352,13 +355,17 @@ body input {
 .editor_bg {
     background-color: var(--bg) !important;
 }
+.editor_bg > #main_photo,
 .editor_bg > #editor > * {
     box-shadow: var(--shadow-lg);
 }
 
 #main_photo {
-    z-index: 8;
-    image-rendering: pixelated;
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 0;
+    pointer-events: none;
 }
 #clip_photo {
     z-index: 10;

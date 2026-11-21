@@ -349,6 +349,7 @@ async function setScreen(i: (typeof allScreens)[0]) {
     fabricCanvas.setDimensions({ width: w, height: h });
     setClipSize(w, h);
     toCanvas(mainCanvas, img);
+    syncMainCanvasLayout();
     resetImageEdge();
     finalRect = [0, 0, mainCanvas.width, mainCanvas.height];
     if (记忆框选)
@@ -363,6 +364,22 @@ async function setScreen(i: (typeof allScreens)[0]) {
 
     if (w < window.innerWidth || h < window.innerHeight)
         document.body.classList.add("editor_bg");
+}
+
+function syncMainCanvasLayout() {
+    const dpr = window.devicePixelRatio || 1;
+    const left = editorP.x * editorP.zoom;
+    const top = editorP.y * editorP.zoom;
+    const isNative1to1 =
+        Math.abs(editorP.zoom * dpr - 1) < 1e-4 &&
+        Math.abs(left) < 1e-4 &&
+        Math.abs(top) < 1e-4;
+    mainCanvas.style.left = isNative1to1 ? "0px" : `${left}px`;
+    mainCanvas.style.top = isNative1to1 ? "0px" : `${top}px`;
+    mainCanvas.style.width = `${isNative1to1 ? mainCanvas.width / dpr : mainCanvas.width * editorP.zoom}px`;
+    mainCanvas.style.height = `${isNative1to1 ? mainCanvas.height / dpr : mainCanvas.height * editorP.zoom}px`;
+    mainCanvas.style.imageRendering =
+        editorP.zoom * dpr > 1.01 ? "pixelated" : "auto";
 }
 
 function setEditorP(zoom: number, x: number, y: number) {
@@ -392,6 +409,7 @@ function setEditorP(zoom: number, x: number, y: number) {
         editorP.y = limitY;
     }
     editor.el.style.transform = t.join(" ");
+    syncMainCanvasLayout();
 
     refreshClipUi();
     whBar(finalRect);
@@ -1391,6 +1409,7 @@ function pjLong() {
         .getContext("2d")!
         .getImageData(0, 0, oCanvas.width, oCanvas.height);
     mainCanvas.getContext("2d")!.putImageData(ggid, 0, 0);
+    syncMainCanvasLayout();
 
     finalRect = [0, 0, oCanvas.width, oCanvas.height];
     // 尺寸变了，立即按当前形态重绘
@@ -4599,12 +4618,12 @@ const suffixList = saveTypeList.map((i) =>
 );
 view().attr({ id: "suffix" }).add(suffixList).addInto(saveType);
 
+const mainCanvas = ele("canvas").attr({ id: "main_photo" }).addInto().el;
 const editor = view().attr({ id: "editor" }).addInto();
-const mainCanvas = ele("canvas").attr({ id: "main_photo" }).el;
 const clipEl = ele("div").attr({ id: "clip_photo" }).el;
 const drawCanvas = ele("canvas").attr({ id: "draw_photo" }).el;
 const drawP = view().attr({ id: "draw_photo_top" }).add(drawCanvas);
-editor.add([mainCanvas, clipEl, drawP]);
+editor.add([clipEl, drawP]);
 
 /** 遮罩和参考线用屏幕坐标绘制，不参与 editor 缩放 */
 const clipMaskLayer = view().attr({ id: "clip_mask" }).addInto();
@@ -5008,6 +5027,25 @@ let willFilter: EditType["filter"] | "" = "";
 
 document.body.style.opacity = "0";
 
+window.addEventListener("resize", () => {
+    const dpr = window.devicePixelRatio || 1;
+    if (
+        editorP.x === 0 &&
+        editorP.y === 0 &&
+        Math.abs(editorP.zoom * ratio - 1) < 1e-4 &&
+        Math.abs(dpr - ratio) > 1e-4
+    ) {
+        ratio = dpr;
+        zoomW = mainCanvas.width / ratio;
+        setEditorP(1 / ratio, 0, 0);
+        return;
+    }
+    if (editorP.zoom > 0) {
+        syncMainCanvasLayout();
+        refreshClipUi();
+    }
+});
+
 renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
     console.log("clip_init displays:", _displays);
     currentDisplays = _displays;
@@ -5025,8 +5063,8 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
     const nowScreen = _displays.find((i) => i.id === mainId) || _displays[0]; // 非截屏，是屏幕
     const xy = { x: 0, y: 0 };
     if (wx.type === "normal") {
-        zoomW = i.size.width;
-        ratio = i.scaleFactor;
+        ratio = window.devicePixelRatio || i.scaleFactor;
+        zoomW = mainCanvas.width / ratio;
     } else if (wx.type === "command") {
         const x = store.get("自定义屏幕属性");
         const s = x.find((i) => i.id === mainId);

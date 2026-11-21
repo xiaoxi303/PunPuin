@@ -438,61 +438,61 @@ async function dispaly2screen(
                 };
                 allScreens.push(x);
             }
-        }
+        } else {
+            for (const display of displays) {
+                const matchedScreens = new Set<number>();
+                let matchedScreen = screens[0];
 
-        for (const display of displays) {
-            const matchedScreens = new Set<number>();
-            let matchedScreen = screens[0];
-
-            // 如果id匹配不上，用xy宽高匹配屏幕中心点
-            let minDistance = Number.POSITIVE_INFINITY;
-            for (const screen of screens) {
-                if (matchedScreens.has(screen.id())) {
-                    continue; // 跳过已匹配的screen
-                }
-                const screenBounds = {
-                    x: screen.x(),
-                    y: screen.y(),
-                    width: screen.width(),
-                    height: screen.height(),
-                };
-                const distance = getCenterDistance(
-                    display.bounds,
-                    screenBounds,
-                );
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    matchedScreen = screen;
-                }
-            }
-
-            matchedScreens.add(matchedScreen.id());
-            const x: ReturnData = {
-                bounds: display.bounds,
-                size: {
-                    width: display.bounds.width,
-                    height: display.bounds.height,
-                },
-                scaleFactor: display.scaleFactor,
-                id: display.id,
-                capture: async () => {
-                    const data = await matchedScreen!.captureImage();
-                    return {
-                        toImageData: () =>
-                            toCanvas2(
-                                data.toRawSync(true),
-                                data.width,
-                                data.height,
-                            ),
-                        toNativeImage: () => {
-                            return nativeImage.createFromBuffer(
-                                data.toPngSync(true),
-                            );
-                        },
+                // 如果id匹配不上，用xy宽高匹配屏幕中心点
+                let minDistance = Number.POSITIVE_INFINITY;
+                for (const screen of screens) {
+                    if (matchedScreens.has(screen.id())) {
+                        continue; // 跳过已匹配的screen
+                    }
+                    const screenBounds = {
+                        x: screen.x(),
+                        y: screen.y(),
+                        width: screen.width(),
+                        height: screen.height(),
                     };
-                },
-            };
-            allScreens.push(x);
+                    const distance = getCenterDistance(
+                        display.bounds,
+                        screenBounds,
+                    );
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        matchedScreen = screen;
+                    }
+                }
+
+                matchedScreens.add(matchedScreen.id());
+                const x: ReturnData = {
+                    bounds: display.bounds,
+                    size: {
+                        width: display.bounds.width,
+                        height: display.bounds.height,
+                    },
+                    scaleFactor: display.scaleFactor,
+                    id: display.id,
+                    capture: async () => {
+                        const data = await matchedScreen!.captureImage();
+                        return {
+                            toImageData: () =>
+                                toCanvas2(
+                                    data.toRawSync(true),
+                                    data.width,
+                                    data.height,
+                                ),
+                            toNativeImage: () => {
+                                return nativeImage.createFromBuffer(
+                                    data.toPngSync(true),
+                                );
+                            },
+                        };
+                    },
+                };
+                allScreens.push(x);
+            }
         }
     } else {
         // 如果没有displays，使用screens（但信息可能不正确）
