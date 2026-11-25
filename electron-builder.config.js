@@ -368,57 +368,71 @@ async function downloadBergamotModels() {
 }
 
 const beforePack = async () => {
-    await downloadBergamotRuntime();
-    await downloadBergamotModels();
+    const tasks = [downloadBergamotRuntime(), downloadBergamotModels()];
 
     if (!checkPath("./assets/fonts/FiraCode-Regular.woff2")) {
-        await downloadUnzip(
-            `${githubUrl}/tonsky/FiraCode/releases/download/6.2/Fira_Code_v6.2.zip`,
-            "./assets/fonts/",
-            (name) => {
-                const m = /^woff2\/(FiraCode-(?:Regular|Bold)\.woff2)$/.exec(
-                    name,
-                );
-                return m ? m[1] : false;
-            },
+        tasks.push(
+            downloadUnzip(
+                `${githubUrl}/tonsky/FiraCode/releases/download/6.2/Fira_Code_v6.2.zip`,
+                "./assets/fonts/",
+                (name) => {
+                    const m =
+                        /^woff2\/(FiraCode-(?:Regular|Bold)\.woff2)$/.exec(
+                            name,
+                        );
+                    return m ? m[1] : false;
+                },
+            ),
         );
     }
     if (!checkPath("./assets/fonts/LICENSE")) {
-        fs.writeFileSync(
-            "./assets/fonts/LICENSE",
-            await downloadBuffer(
-                `${githubUrl}/tonsky/FiraCode/raw/6.2/LICENSE`,
+        tasks.push(
+            downloadBuffer(`${githubUrl}/tonsky/FiraCode/raw/6.2/LICENSE`).then(
+                (buf) => {
+                    ensureDir("./assets/fonts");
+                    fs.writeFileSync("./assets/fonts/LICENSE", buf);
+                },
             ),
         );
     }
     if (!checkPath("./assets/onnx/ppocr/ppocr6_small_rec.onnx")) {
         ensureDir("./assets/onnx/ppocr");
-        await downloadUnzip(
-            `${githubUrl}/xushengfeng/eSearch-OCR/releases/download/4.0.0/ppocr_v6_small.zip`,
-            "./assets/onnx/ppocr/",
+        tasks.push(
+            downloadUnzip(
+                `${githubUrl}/xushengfeng/eSearch-OCR/releases/download/4.0.0/ppocr_v6_small.zip`,
+                "./assets/onnx/ppocr/",
+            ),
         );
     }
     if (!checkPath("./assets/onnx/ppocr/doc_cls.onnx")) {
-        await download(
-            `${githubUrl}/xushengfeng/eSearch-OCR/releases/download/8.1.0/doc_cls.onnx`,
-            "./assets/onnx/ppocr/",
+        ensureDir("./assets/onnx/ppocr");
+        tasks.push(
+            download(
+                `${githubUrl}/xushengfeng/eSearch-OCR/releases/download/8.1.0/doc_cls.onnx`,
+                "./assets/onnx/ppocr/",
+            ),
         );
     }
     if (!checkPath("./assets/onnx/seg")) {
         ensureDir("./assets/onnx/seg");
-        await download(
-            `${githubUrl}/xushengfeng/eSearch-seg/releases/download/1.0.0/seg.onnx`,
-            "./assets/onnx/seg/",
-        );
-    }
-    if (process.platform === "win32" && !checkPath("./lib/copy.exe")) {
-        fs.writeFileSync(
-            "./lib/copy.exe",
-            await downloadBuffer(
-                `${githubUrl}/xushengfeng/ctrlc/releases/download/0.1.0/copy.exe`,
+        tasks.push(
+            download(
+                `${githubUrl}/xushengfeng/eSearch-seg/releases/download/1.0.0/seg.onnx`,
+                "./assets/onnx/seg/",
             ),
         );
     }
+    if (process.platform === "win32" && !checkPath("./lib/copy.exe")) {
+        tasks.push(
+            downloadBuffer(
+                `${githubUrl}/xushengfeng/ctrlc/releases/download/0.1.0/copy.exe`,
+            ).then((buf) => {
+                fs.writeFileSync("./lib/copy.exe", buf);
+            }),
+        );
+    }
+
+    await Promise.all(tasks);
 };
 
 /**
@@ -447,7 +461,7 @@ const build = {
     appId: "com.punpun.app",
     productName: "PunPun",
     executableName: "PunPun",
-    compression: "maximum",
+    compression: process.env.GITHUB_ACTIONS ? "normal" : "maximum",
     directories: {
         output: "build",
         buildResources: "build",

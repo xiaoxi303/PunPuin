@@ -41,11 +41,36 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install pnpm
-        run: npm install -g pnpm@10.17.0
+      - name: Install pnpm & resolve store path
+        shell: bash
+        run: |
+          npm install -g pnpm@10.17.0
+          echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: pnpm-${{ runner.os }}-x64-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-x64-
+
+      - name: Cache Electron & runtime assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+            assets/onnx
+            assets/bergamot
+            assets/fonts
+            lib/copy.exe
+          key: build-assets-win-x64-${{ hashFiles('package.json', 'electron-builder.config.js') }}
+          restore-keys: |
+            build-assets-win-x64-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build Windows x64 (.exe)
         env:
@@ -93,16 +118,42 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install pnpm
-        run: npm install -g pnpm@10.17.0
+      - name: Install pnpm & resolve store path
+        shell: bash
+        run: |
+          npm install -g pnpm@10.17.0
+          echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: pnpm-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ matrix.arch }}-
+            pnpm-${{ runner.os }}-
+
+      - name: Cache Electron & runtime assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            assets/onnx
+            assets/bergamot
+            assets/fonts
+          key: build-assets-mac-${{ matrix.arch }}-${{ hashFiles('package.json', 'electron-builder.config.js') }}
+          restore-keys: |
+            build-assets-mac-${{ matrix.arch }}-
+            build-assets-mac-
 
       - name: Install dependencies (native)
         if: matrix.arch == matrix.native_arch
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Install dependencies (cross-arch)
         if: matrix.arch != matrix.native_arch
-        run: pnpm install --force --frozen-lockfile
+        run: pnpm install --force --frozen-lockfile --prefer-offline
 
       - name: Build ${{ matrix.label }}
         env:
