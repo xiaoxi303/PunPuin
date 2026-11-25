@@ -852,33 +852,12 @@ app.whenReady().then(() => {
 
         contextMenu = Menu.buildFromTemplate([
             {
-                label: `${t("自动识别")}`,
-                click: () => {
-                    autoOpen();
-                },
-            },
-            {
                 label: t("截屏搜索"),
                 click: () => {
                     setTimeout(() => {
                         showPhoto();
                     }, store.get("主搜索功能.截屏搜索延迟"));
                 },
-            },
-            {
-                label: t("选中搜索"),
-                click: () => {
-                    openSelection();
-                },
-            },
-            {
-                label: t("剪贴板搜索"),
-                click: () => {
-                    openClipBoard();
-                },
-            },
-            {
-                type: "separator",
             },
             {
                 label: t("文字识别（OCR）"),
@@ -889,11 +868,9 @@ app.whenReady().then(() => {
                 },
             },
             {
-                label: t("以图搜图"),
+                label: t("从剪贴板贴图"),
                 click: () => {
-                    setTimeout(() => {
-                        sendCaptureEvent(undefined, "search");
-                    }, store.get("主搜索功能.截屏搜索延迟"));
+                    dingFromClipBoard();
                 },
             },
             {
@@ -902,120 +879,101 @@ app.whenReady().then(() => {
                     createSuperRecorderWindow();
                 },
             },
+            { type: "separator" },
             {
-                type: "separator",
-            },
-            {
-                label: t("浏览器打开"),
-                type: "checkbox",
-                checked: store.get("浏览器中打开"),
-                click: (i) => {
-                    store.set("浏览器中打开", i.checked);
-                    update();
-                },
-            },
-            {
-                type: "separator",
-            },
-            {
-                label: t("从剪贴板贴图"),
-                click: () => {
-                    dingFromClipBoard();
-                },
-            },
-            {
-                type: "separator",
-            },
-            {
-                label: t("主页面模式"),
+                label: t("更多功能"),
                 type: "submenu",
                 submenu: [
                     {
-                        label: t("自动"),
-                        type: "radio",
-                        checked: store.get("主页面.模式") === "auto",
+                        label: t("自动识别"),
                         click: () => {
-                            store.set("主页面.模式", "auto");
+                            autoOpen();
+                        },
+                    },
+                    {
+                        label: t("选中搜索"),
+                        click: () => {
+                            openSelection();
+                        },
+                    },
+                    {
+                        label: t("剪贴板搜索"),
+                        click: () => {
+                            openClipBoard();
+                        },
+                    },
+                    {
+                        label: t("以图搜图"),
+                        click: () => {
+                            setTimeout(() => {
+                                sendCaptureEvent(undefined, "search");
+                            }, store.get("主搜索功能.截屏搜索延迟"));
+                        },
+                    },
+                    { type: "separator" },
+                    {
+                        label: t("主页面"),
+                        click: () => {
+                            createMainWindow({ type: "text", content: "" });
+                        },
+                    },
+                    {
+                        label: t("主页面模式"),
+                        type: "submenu",
+                        submenu: [
+                            {
+                                label: t("自动"),
+                                type: "radio",
+                                checked: store.get("主页面.模式") === "auto",
+                                click: () => {
+                                    store.set("主页面.模式", "auto");
+                                    update();
+                                },
+                            },
+                            {
+                                label: t("搜索"),
+                                type: "radio",
+                                checked: store.get("主页面.模式") === "search",
+                                click: () => {
+                                    store.set("主页面.模式", "search");
+                                    update();
+                                },
+                            },
+                            {
+                                label: t("翻译"),
+                                type: "radio",
+                                checked:
+                                    store.get("主页面.模式") === "translate",
+                                click: () => {
+                                    store.set("主页面.模式", "translate");
+                                    update();
+                                },
+                            },
+                        ],
+                    },
+                    {
+                        label: t("复用主页面"),
+                        toolTip: t("可加快OCR加载"),
+                        type: "checkbox",
+                        checked: store.get("主页面.复用"),
+                        click: (i) => {
+                            store.set("主页面.复用", i.checked);
                             update();
                         },
                     },
                     {
-                        label: t("搜索"),
-                        type: "radio",
-                        checked: store.get("主页面.模式") === "search",
-                        click: () => {
-                            store.set("主页面.模式", "search");
-                            update();
-                        },
-                    },
-                    {
-                        label: t("翻译"),
-                        type: "radio",
-                        checked: store.get("主页面.模式") === "translate",
-                        click: () => {
-                            store.set("主页面.模式", "translate");
+                        id: "browser-open",
+                        label: t("浏览器打开"),
+                        type: "checkbox",
+                        checked: store.get("浏览器中打开"),
+                        click: (i) => {
+                            store.set("浏览器中打开", i.checked);
                             update();
                         },
                     },
                 ],
             },
-            {
-                label: t("复用主页面"),
-                toolTip: t("可加快OCR加载"),
-                type: "checkbox",
-                checked: store.get("主页面.复用"),
-                click: (i) => {
-                    store.set("主页面.复用", i.checked);
-                    update();
-                },
-            },
             { type: "separator" },
-            {
-                label: t("主页面"),
-                click: () => {
-                    createMainWindow({ type: "text", content: "" });
-                },
-            },
-            {
-                label: t("教程帮助"),
-                click: () => {
-                    createHelpWindow();
-                },
-            },
-            {
-                type: "separator",
-            },
-            ...(dev
-                ? [
-                      {
-                          label: t("退出开发者模式"),
-                          click: () => {
-                              store.set("dev", false);
-                              app.relaunch();
-                              app.exit(0);
-                          },
-                      },
-                  ]
-                : []),
-            {
-                label: t("检查更新"),
-                click: async () => {
-                    checkUpdate(true);
-                },
-            },
-            {
-                label: t("反馈"),
-                click: (_i, win) => {
-                    shell.openExternal(
-                        feedbackUrl({
-                            title: `[${win?.getTitle()?.replace("eSearch - ", "") ?? "……界面"}] 存在……问题`,
-                        }),
-                    );
-                },
-            },
-            {
-                type: "separator",
-            },
             {
                 label: t("显示主界面"),
                 click: () => {
@@ -1023,11 +981,52 @@ app.whenReady().then(() => {
                 },
             },
             {
-                label: t("重启"),
-                click: () => {
-                    app.relaunch();
-                    app.exit(0);
-                },
+                label: t("帮助与更新"),
+                type: "submenu",
+                submenu: [
+                    {
+                        label: t("检查更新"),
+                        click: async () => {
+                            checkUpdate(true);
+                        },
+                    },
+                    {
+                        label: t("教程帮助"),
+                        click: () => {
+                            createHelpWindow();
+                        },
+                    },
+                    {
+                        label: t("反馈"),
+                        click: (_i, win) => {
+                            shell.openExternal(
+                                feedbackUrl({
+                                    title: `[${win?.getTitle()?.replace("eSearch - ", "") ?? "……界面"}] 存在……问题`,
+                                }),
+                            );
+                        },
+                    },
+                    { type: "separator" },
+                    ...(dev
+                        ? [
+                              {
+                                  label: t("退出开发者模式"),
+                                  click: () => {
+                                      store.set("dev", false);
+                                      app.relaunch();
+                                      app.exit(0);
+                                  },
+                              },
+                          ]
+                        : []),
+                    {
+                        label: t("重启"),
+                        click: () => {
+                            app.relaunch();
+                            app.exit(0);
+                        },
+                    },
+                ],
             },
             {
                 label: t("退出"),
@@ -2278,12 +2277,11 @@ mainOn("reloadMainFromSetting", () => {
         }
     }
     if (contextMenu && tray) {
-        const browserItem = contextMenu.items.find(
-            (i) => i.label === t("浏览器打开"),
-        );
+        const browserItem = contextMenu.getMenuItemById("browser-open");
         if (browserItem) browserItem.checked = store.get("浏览器中打开");
-        tray.popUpContextMenu(contextMenu);
-        tray.closeContextMenu();
+        if (!store.get("点击托盘自动截图")) {
+            tray.setContextMenu(contextMenu);
+        }
     }
 });
 mainOn("getDefaultSetting", async () => {
@@ -3764,10 +3762,18 @@ function versionTrans() {
     }
 }
 
+function extractSemver(raw: string): string {
+    const m = /(\d+(?:\.\d+)+)/.exec(raw || "");
+    return m ? m[1] : "";
+}
+
 function versionCompare(v1: string, v2: string) {
-    const v1Arr = v1.split("-")[0].split(".");
-    const v2Arr = v2.split("-")[0].split(".");
-    for (let i = 0; i < v1Arr.length; i++) {
+    const s1 = extractSemver(v1) || v1;
+    const s2 = extractSemver(v2) || v2;
+    const v1Arr = s1.split(".");
+    const v2Arr = s2.split(".");
+    const len = Math.max(v1Arr.length, v2Arr.length);
+    for (let i = 0; i < len; i++) {
         const a = Number(v1Arr.at(i) ?? 0);
         const b = Number(v2Arr.at(i) ?? 0);
         if (a > b) {
@@ -3827,67 +3833,125 @@ function githubUrl(_path: string, _type: GithubUrlType | "auto" = "auto") {
 
 mainOn("githubUrl", ([p, t]) => githubUrl(p, t));
 
-function checkUpdate(s手动检查?: boolean) {
-    const version = store.get("设置版本");
+type GithubReleasePayload = {
+    html_url: string;
+    name: string;
+    tag_name: string;
+    body: string;
+    draft: boolean;
+    prerelease: boolean;
+    assets: {
+        browser_download_url: string;
+        name: string;
+    }[];
+};
+
+function getGithubApiEndpoints(apiPath: string): string[] {
+    const cleanPath = apiPath.replace(/^\//, "");
+    const enabled = store.get("网络.github镜像.启用");
+    const configuredApi = store.getString("网络.github镜像.api").trim();
+    const candidates: string[] = [];
+    const appendBase = (base: string) => {
+        const b = base.trim().replace(/\/$/, "");
+        if (!b) return;
+        const url = `${b}/${cleanPath}`;
+        if (!candidates.includes(url)) candidates.push(url);
+    };
+
+    if (enabled) {
+        if (configuredApi && !configuredApi.includes("gh.2i.gs")) {
+            appendBase(configuredApi);
+        }
+        for (const m of githubMirrorList.api) {
+            appendBase(m);
+        }
+        appendBase("https://api.github.com/");
+    } else {
+        appendBase("https://api.github.com/");
+        for (const m of githubMirrorList.api) {
+            appendBase(m);
+        }
+    }
+    return candidates;
+}
+
+async function fetchGithubReleases(): Promise<
+    | { ok: true; releases: GithubReleasePayload[] }
+    | { ok: false; error: string }
+> {
+    const urls = getGithubApiEndpoints("repos/xiaoxi303/PunPuin/releases");
+    let lastError = "未知网络错误";
+    for (const url of urls) {
+        try {
+            const res = await fetchWithConnectTimeout(url, 7_000);
+            if (!res.ok) {
+                lastError = `HTTP ${res.status} ${res.statusText}`.trim();
+                continue;
+            }
+            const data = await res.json();
+            if (!Array.isArray(data)) {
+                lastError = "响应格式异常";
+                continue;
+            }
+            return {
+                ok: true,
+                releases: data as GithubReleasePayload[],
+            };
+        } catch (err) {
+            lastError = err instanceof Error ? err.message : String(err);
+        }
+    }
+    return { ok: false, error: lastError };
+}
+
+mainHandle("fetchGithubReleases", async () => fetchGithubReleases());
+
+async function checkUpdate(s手动检查?: boolean) {
+    const version = app.getVersion() || store.get("设置版本");
     const m = store.get("更新.模式");
-    fetchWithConnectTimeout(
-        githubUrl("repos/xiaoxi303/PunPuin/releases", "api"),
-        12_000,
-    )
-        .then((v) => {
-            if (!v.ok) throw new Error(`HTTP ${v.status}`);
-            return v.json();
-        })
-        .then(
-            (
-                re: {
-                    tag_name: string;
-                    name: string;
-                    html_url: string;
-                    draft: boolean;
-                    prerelease: boolean;
-                }[],
-            ) => {
-                const isDev =
-                    version.includes("beta") ||
-                    version.includes("alpha") ||
-                    m === "dev";
-                const first = re
-                    .filter((r) => /^\d/.test(r.tag_name))
-                    .find((r) => (isDev ? true : !r.draft && !r.prerelease));
-                if (!first) {
-                    if (s手动检查) showVersion("err");
-                    return;
-                }
-                let update = false;
-                const firstName = first.name;
-                if (m === "dev") {
-                    if (firstName !== version) update = true;
-                } else if (m === "小版本" || s手动检查) {
-                    if (versionCompare(firstName, version) > 0) update = true;
-                } else {
-                    if (
-                        versionCompare(
-                            firstName.split(".").at(0)!,
-                            version.split(".").at(0)!,
-                        ) > 0
-                    )
-                        update = true;
-                }
-                if (store.get("更新.忽略版本") !== firstName)
-                    if (update) {
-                        showVersion({
-                            v: first.name,
-                            url: first.html_url,
-                        });
-                    } else if (s手动检查) {
-                        showVersion();
-                    }
-            },
-        )
-        .catch(() => {
-            if (s手动检查) showVersion("err");
-        });
+    const result = await fetchGithubReleases();
+    if (!result.ok) {
+        if (s手动检查) showVersion("err");
+        return;
+    }
+    const isDev =
+        version.includes("beta") || version.includes("alpha") || m === "dev";
+    const candidates = result.releases.filter(
+        (r) =>
+            !r.draft &&
+            Boolean(extractSemver(r.tag_name) || extractSemver(r.name)),
+    );
+    const first =
+        candidates.find((r) => (isDev ? true : !r.prerelease)) ??
+        (s手动检查 ? candidates[0] : undefined);
+    if (!first) {
+        if (s手动检查) showVersion();
+        return;
+    }
+    let update = false;
+    const firstVer = extractSemver(first.name) || extractSemver(first.tag_name);
+    const firstLabel = first.name || first.tag_name;
+    if (m === "dev") {
+        if (firstVer && versionCompare(firstVer, version) > 0) update = true;
+    } else if (m === "小版本" || s手动检查) {
+        if (firstVer && versionCompare(firstVer, version) > 0) update = true;
+    } else if (
+        firstVer &&
+        versionCompare(firstVer.split(".").at(0)!, version.split(".").at(0)!) >
+            0
+    ) {
+        update = true;
+    }
+    if (store.get("更新.忽略版本") !== firstLabel) {
+        if (update) {
+            showVersion({
+                v: firstLabel,
+                url: first.html_url,
+            });
+        } else if (s手动检查) {
+            showVersion();
+        }
+    }
 }
 
 function showVersion(arg?: { v: string; url: string } | "err") {

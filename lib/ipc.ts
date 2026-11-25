@@ -304,6 +304,26 @@ type Message = {
     }) => "ready" | "missing" | "unsupported" | "error";
     bergamot_clear: () => void;
     githubUrl: (path: string, _type?: GithubUrlType | "auto") => string;
+    fetchGithubReleases: () =>
+        | {
+              ok: true;
+              releases: {
+                  html_url: string;
+                  name: string;
+                  tag_name: string;
+                  body: string;
+                  draft: boolean;
+                  prerelease: boolean;
+                  assets: {
+                      browser_download_url: string;
+                      name: string;
+                  }[];
+              }[];
+          }
+        | {
+              ok: false;
+              error: string;
+          };
     getScreens: () => Display[];
     /** 会话 D-Bus 总线地址，Wayland 截屏用 */
     dbusSessionBusPath: () => string;

@@ -6190,131 +6190,118 @@ function about() {
             borderRadius: "999px",
             paddingInline: "14px",
         })
-        .on("click", () => {
+        .on("click", async () => {
             version.el.textContent = t("检查中...");
-            fetch(githubUrl("repos/xiaoxi303/PunPuin/releases", "api"), {
-                method: "GET",
-                redirect: "follow",
-            })
-                .then((response) => {
-                    if (!response.ok)
-                        throw new Error(
-                            `HTTP ${response.status} ${response.statusText}`,
-                        );
-                    return response.json();
-                })
-                .then((re) => {
-                    version.el.textContent = t("检查更新");
-                    const l: {
-                        html_url: string;
-                        name: string;
-                        tag_name: string;
-                        body: string;
-                        assets: {
-                            browser_download_url: string;
-                            name: string;
-                        }[];
-                    }[] =
-                        // @ts-expect-error
-                        re.filter((i) => !i.draft && /^\d/.test(i.tag_name));
-                    update.clear();
-                    for (const [i, r] of l.entries()) {
-                        const div = xGroup("y");
-                        const tags = xGroup("x").style({
-                            alignItems: "center",
-                        });
-                        const b = r.body.split("\n---").at(0) as string;
-                        const p = document.createElement("p");
-                        p.innerHTML = b.replace(/\r\n/g, "<br>");
-                        function md(b: string) {
-                            fetch(githubUrl("markdown", "api"), {
-                                body: JSON.stringify({ text: b, mode: "gfm" }),
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                            })
-                                .then((r) => r.text())
-                                .then((data) => {
-                                    p.innerHTML = data;
-                                });
-                        }
-                        md(b);
-                        const trans = button("翻译").on("click", async () => {
-                            const transE = getSet("翻译.翻译器");
-                            if (transE.length === 0) {
-                                trans.remove();
-                                return;
-                            }
-                            const x = transE.at(
-                                0,
-                            ) as setting["翻译"]["翻译器"][0];
-                            const e = getTranslators(store, x);
-                            if (!e) return;
-                            const t = await e.run(
-                                b,
-                                "zh",
-                                getSet("语言.语言") || "zh-Hans",
-                            );
-                            md(t);
-                        });
-                        div.add([
-                            ele("h1").add(noI18n(r.name)).style({
+            try {
+                const res = await renderInvoke("fetchGithubReleases", []);
+                version.el.textContent = t("检查更新");
+                if (!res.ok) {
+                    throw new Error(res.error);
+                }
+                const extractVer = (raw: string) =>
+                    /(\d+(?:\.\d+)+)/.exec(raw || "")?.[1] ?? "";
+                const cmpVer = (a: string, b: string) => {
+                    const aa = a.split(".").map(Number);
+                    const bb = b.split(".").map(Number);
+                    const len = Math.max(aa.length, bb.length);
+                    for (let idx = 0; idx < len; idx++) {
+                        const x = aa[idx] ?? 0;
+                        const y = bb[idx] ?? 0;
+                        if (x > y) return 1;
+                        if (x < y) return -1;
+                    }
+                    return 0;
+                };
+                const l = res.releases.filter(
+                    (i) =>
+                        !i.draft &&
+                        Boolean(extractVer(i.tag_name) || extractVer(i.name)),
+                );
+                update.clear();
+                if (l.length === 0) {
+                    update.add(
+                        view("y")
+                            .style({ gap: "4px" })
+                            .add([
+                                p(t("已是最新版本"), true),
+                                comment(`v${packageJson.version}`),
+                            ]),
+                    );
+                    return;
+                }
+                for (const [i, r] of l.entries()) {
+                    const div = xGroup("y");
+                    const tags = xGroup("x").style({
+                        alignItems: "center",
+                    });
+                    const b = (r.body || "").split("\n---").at(0) ?? "";
+                    const pEl = document.createElement("p");
+                    pEl.textContent = b;
+                    pEl.style.whiteSpace = "pre-wrap";
+                    const relVer = extractVer(r.name) || extractVer(r.tag_name);
+                    const cmp = relVer
+                        ? cmpVer(relVer, packageJson.version)
+                        : 0;
+                    div.add([
+                        ele("h1")
+                            .add(noI18n(r.name || r.tag_name))
+                            .style({
                                 fontFamily: "var(--monospace)",
                             }),
-                            tags,
-                            getSet("语言.语言") !== "zh-HANS" ? trans : "",
-                            p,
-                        ]);
-                        update.add(div);
+                        tags,
+                        pEl,
+                    ]);
+                    update.add(div);
 
-                        if (r.name === packageJson.version) {
-                            tags.add(txt("当前版本"));
-                            break;
-                        }
-                        if (i === 0) {
-                            tags.add(txt("最新版本"));
-                        }
-                        const assets = r.assets.filter(
-                            (i) =>
-                                i.name.includes("PunPun") ||
-                                i.name.endsWith(".exe"),
-                        );
-                        tags.add(
-                            assets.map((i) =>
-                                button(noI18n(`${t("点击下载")} ${i.name}`)).on(
-                                    "click",
-                                    () => {
-                                        shell.openExternal(
-                                            githubUrl(i.browser_download_url),
-                                        );
-                                    },
-                                ),
+                    if (cmp <= 0) {
+                        tags.add(txt(t("已是最新版本")));
+                    } else if (i === 0) {
+                        tags.add(txt("最新版本"));
+                    }
+                    const assets = r.assets.filter((item) =>
+                        /\.(exe|dmg|zip|deb|AppImage|tar\.gz)$/i.test(
+                            item.name,
+                        ),
+                    );
+                    tags.add(
+                        assets.map((item) =>
+                            button(noI18n(`${t("点击下载")} ${item.name}`)).on(
+                                "click",
+                                () => {
+                                    shell.openExternal(
+                                        githubUrl(item.browser_download_url),
+                                    );
+                                },
                             ),
-                        );
+                        ),
+                    );
+                    if (cmp > 0) {
                         tags.add(
                             button("忽略此版本").on("click", () => {
-                                setSet("更新.忽略版本", r.name);
+                                setSet("更新.忽略版本", r.name || r.tag_name);
                                 reRenderSetting("更新.忽略版本");
                             }),
                         );
                     }
-                })
-                .catch((error) => {
-                    version.el.textContent = t("检查更新");
-                    console.error(error);
-                    update.clear().add(
-                        view("y")
-                            .style({ gap: "4px" })
-                            .add([
-                                p(t("无法检查更新"), true),
-                                comment(t("请检查网络，稍后重试")),
-                                comment(
-                                    error instanceof Error
-                                        ? error.message
-                                        : String(error),
-                                ),
-                            ]),
-                    );
-                });
+                    if (cmp <= 0) break;
+                }
+            } catch (error) {
+                version.el.textContent = t("检查更新");
+                console.error(error);
+                update.clear().add(
+                    view("y")
+                        .style({ gap: "4px" })
+                        .add([
+                            p(t("无法检查更新"), true),
+                            comment(t("请检查网络，稍后重试")),
+                            comment(
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                            ),
+                        ]),
+                );
+            }
         });
     const update = view("y")
         .style({ gap: "16px", width: "100%", textAlign: "left" })
