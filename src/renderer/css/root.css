@@ -136,7 +136,7 @@ body {
 body button,
 body input,
 body select,
-*:has(> .icon),
+:not(.pun-no-icon-box):has(> .icon),
 .b-like,
 .group {
     height: var(--b-button);
@@ -152,7 +152,14 @@ body select,
 }
 
 :not(.group)
-    > :where(button, input, select, textarea, *:has(> .icon), .b-like) {
+    > :where(
+        button,
+        input,
+        select,
+        textarea,
+        :not(.pun-no-icon-box):has(> .icon),
+        .b-like
+    ) {
     background-color: var(--surface);
     border-radius: var(--border-radius);
     transition: var(--transition);
@@ -167,7 +174,7 @@ body select,
     width: fit-content;
     overflow: hidden;
 }
-*:has(> .icon) {
+:not(.pun-no-icon-box):has(> .icon) {
     cursor: pointer;
 }
 body button,
@@ -221,13 +228,36 @@ button:active {
         opacity var(--transition);
 }
 
-*:has(> .icon) {
+:not(.pun-no-icon-box):has(> .icon) {
     display: flex;
     padding-inline: 0;
     width: var(--b-button);
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+}
+
+.pun-icon-wrap {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 16px;
+    height: 16px;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    outline: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    flex-shrink: 0 !important;
+    cursor: inherit !important;
+}
+.pun-icon-wrap > .icon {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
 }
 
 option {

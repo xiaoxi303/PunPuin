@@ -3144,14 +3144,19 @@ const sideNavItemClass = addClass(
     {
         position: "relative",
         display: "flex",
+        flexDirection: "row",
         alignItems: "center",
         gap: "10px",
         width: "100%",
+        minHeight: "38px",
+        height: "auto",
         padding: "8px 12px",
         borderRadius: "10px",
         cursor: "pointer",
         fontSize: "13.5px",
         fontWeight: 500,
+        whiteSpace: "nowrap",
+        boxSizing: "border-box",
         transition: "all var(--transition)",
     },
     {
@@ -3228,18 +3233,20 @@ const quickClipBtnClass = addClass(
 const miniActionBtnClass = addClass(
     {
         flex: "1 1 0",
+        width: "auto",
+        minWidth: "0",
         height: "32px",
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
         gap: "5px",
-        paddingInline: "6px",
+        paddingInline: "8px",
         borderRadius: "8px",
         backgroundColor: "var(--surface-2)",
         outline: "1px solid var(--border-subtle)",
         border: "none",
         color: "var(--font-color)",
-        fontSize: "11.5px",
+        fontSize: "12px",
         fontWeight: 500,
         cursor: "pointer",
         transition: "all var(--transition)",
@@ -3252,11 +3259,6 @@ const miniActionBtnClass = addClass(
             color: "var(--emphasis-color)",
             outlineColor:
                 "color-mix(in srgb, var(--emphasis-color) 32%, transparent)",
-        },
-        "& .icon": {
-            width: "14px",
-            height: "14px",
-            flexShrink: 0,
         },
     },
 );
@@ -3308,6 +3310,7 @@ const quickGridCardClass = addClass(
             height: "30px",
             borderRadius: "8px",
             backgroundColor: "var(--accent-soft)",
+            outline: "none",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -3507,6 +3510,15 @@ function tIconEl(img: string) {
 
 function iconEl(img: IconType) {
     return image(getImgUrl(`${img}.svg`), noI18n(img)).class("icon");
+}
+
+function inlineIconEl(img: IconType, size = 16, extraClass?: string) {
+    const ic = iconEl(img);
+    if (extraClass) ic.class(extraClass);
+    return ele("span")
+        .class("pun-icon-wrap")
+        .style({ width: `${size}px`, height: `${size}px` })
+        .add(ic);
 }
 
 function comment(str: string) {
@@ -5967,8 +5979,8 @@ function buildDashboardHero() {
                                 })
                                 .add([
                                     view()
-                                        .class("q-icon")
-                                        .add(iconEl(item.icon)),
+                                        .class("q-icon", "pun-no-icon-box")
+                                        .add(inlineIconEl(item.icon, 16)),
                                     item.badge
                                         ? ele("kbd")
                                               .add(noI18n(item.badge))
@@ -6414,7 +6426,7 @@ const sideBar = view("y")
     .style({
         padding: "16px 12px",
         flexShrink: 0,
-        width: "236px",
+        width: "248px",
         height: "100vh",
         overflowY: "auto",
         backgroundColor: "var(--surface)",
@@ -6486,15 +6498,7 @@ const brandHeader = view("y")
                     view("x")
                         .style({ alignItems: "center", gap: "7px" })
                         .add([
-                            view()
-                                .style({
-                                    width: "16px",
-                                    height: "16px",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                })
-                                .add(iconEl("rect_select")),
+                            inlineIconEl("rect_select", 16),
                             txt(t("立即截图"), true),
                         ]),
                     txt(noI18n(clipShortcutBadge)).style({
@@ -6505,28 +6509,28 @@ const brandHeader = view("y")
                         backgroundColor: "rgba(255, 255, 255, 0.2)",
                     }),
                 ])
-                    .class(quickClipBtnClass)
+                    .class(quickClipBtnClass, "pun-no-icon-box")
                     .on("click", () => {
                         renderSend("setting_quick_action", ["clip"]);
                     }),
             ),
         view("x")
-            .style({ gap: "6px" })
+            .style({ gap: "6px", width: "100%" })
             .add([
-                button([iconEl("camera"), txt(t("全屏快截"), true)])
-                    .class(miniActionBtnClass)
-                    .attr({ title: "快速截取全屏并复制" })
+                button([inlineIconEl("camera", 14), txt(t("快截"), true)])
+                    .class(miniActionBtnClass, "pun-no-icon-box")
+                    .attr({ title: "全屏快速截屏" })
                     .on("click", () =>
                         renderSend("setting_quick_action", ["quick_clip"]),
                     ),
-                button([iconEl("ding"), txt(t("贴图"), true)])
-                    .class(miniActionBtnClass)
+                button([inlineIconEl("ding", 14), txt(t("贴图"), true)])
+                    .class(miniActionBtnClass, "pun-no-icon-box")
                     .attr({ title: "将剪贴板内容贴图到屏幕" })
                     .on("click", () =>
                         renderSend("setting_quick_action", ["ding_clipboard"]),
                     ),
-                button([iconEl("main"), txt(t("主窗"), true)])
-                    .class(miniActionBtnClass)
+                button([inlineIconEl("main", 14), txt(t("主窗"), true)])
+                    .class(miniActionBtnClass, "pun-no-icon-box")
                     .attr({ title: "打开文字识别与翻译主窗口" })
                     .on("click", () =>
                         renderSend("setting_quick_action", ["main_window"]),
@@ -6571,21 +6575,15 @@ const searchWrap = view()
         alignItems: "center",
     })
     .addInto(searchBar);
-view()
+inlineIconEl("search", 16)
     .style({
         position: "absolute",
         left: "12px",
         top: "50%",
         transform: "translateY(-50%)",
-        width: "16px",
-        height: "16px",
         opacity: 0.55,
         pointerEvents: "none",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
     })
-    .add(iconEl("search"))
     .addInto(searchWrap);
 const searchI = input()
     .attr({ placeholder: t("搜索设置项或快捷键...") })
@@ -6710,14 +6708,34 @@ function showContextMenu(e: MouseEvent) {
 
 for (const [i, page] of main.entries()) {
     const labelContent = view("x")
-        .style({ alignItems: "center", gap: "10px" })
+        .class("pun-no-icon-box")
+        .style({
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: "10px",
+            width: "100%",
+            minWidth: "0",
+            height: "auto",
+            whiteSpace: "nowrap",
+        })
         .add([
-            page.icon ? iconEl(page.icon).class("nav-icon") : "",
-            txt(page.pageName, true),
+            page.icon ? inlineIconEl(page.icon, 16, "nav-icon") : "",
+            txt(page.pageName, true).style({
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                lineHeight: "1.4",
+            }),
         ]);
     const sideEl = view()
         .class("nav-wrap")
-        .add(sideBarG.new(String(i), labelContent).class(sideNavItemClass));
+        .style({ width: "100%" })
+        .add(
+            sideBarG
+                .new(String(i), labelContent)
+                .class(sideNavItemClass, "pun-no-icon-box"),
+        );
     sideBar.add(sideEl);
 }
 sideBarG.set("0");

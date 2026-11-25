@@ -101,32 +101,40 @@ body input {
     background-color: transparent !important;
 }
 
-/* 截屏悬浮动作任务栏（横向磨砂胶囊） */
+/* 截屏悬浮动作任务栏（单排一体化磨砂任务栏） */
 #tool_bar {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     width: max-content;
-    height: auto;
-    padding: 5px 6px;
+    height: calc(var(--bar-size) + 8px);
+    box-sizing: border-box;
+    padding: 4px 6px;
     position: fixed;
     z-index: 99;
-    left: 10px;
-    top: 100px;
-    border-radius: 13px;
+    left: -9999px;
+    top: -9999px;
+    border-radius: 11px;
     overflow: visible;
     transition:
-        opacity 0.18s ease,
-        transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+        opacity 0.16s ease,
+        transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#tool_bar[data-dock="inline"] {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 1px solid
+        color-mix(in srgb, var(--font-color) 14%, transparent);
+    padding-left: 6px;
 }
 #tool_bar > div {
     width: var(--bar-size);
     height: var(--bar-size);
-    border-radius: 8px;
+    border-radius: 7px;
     transition:
-        background-color 0.16s ease,
-        transform 0.16s ease;
+        background-color 0.15s ease,
+        transform 0.15s ease;
     cursor: pointer;
     position: relative;
     flex-shrink: 0;
@@ -142,6 +150,17 @@ body input {
 }
 #tool_bar > div:hover {
     background-color: var(--hover-color);
+}
+
+.pun-bar-sep {
+    display: inline-block;
+    width: 1px;
+    height: calc(var(--bar-size) * 0.52);
+    margin-inline: 3px;
+    background-color: color-mix(in srgb, var(--font-color) 15%, transparent);
+    border-radius: 999px;
+    flex-shrink: 0;
+    pointer-events: none;
 }
 
 #tool_screens {
@@ -169,6 +188,14 @@ body input {
 /* 主操作高亮：复制/完成 */
 #tool_copy {
     cursor: pointer !important;
+    width: auto !important;
+    padding-inline: 10px !important;
+    margin-left: 2px;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 5px;
+    color: #ffffff !important;
     background: linear-gradient(
         135deg,
         var(--emphasis-color),
@@ -182,7 +209,19 @@ body input {
             color-mix(in srgb, var(--emphasis-color) 52%, transparent);
     }
     & > .icon {
+        width: calc(var(--bar-size) * 0.48) !important;
+        height: calc(var(--bar-size) * 0.48) !important;
         filter: brightness(0) invert(1) !important;
+        flex-shrink: 0;
+    }
+    & > .tool_copy_label {
+        font-size: 12.5px;
+        font-weight: 600;
+        line-height: 1;
+        color: #ffffff;
+        white-space: nowrap;
+        pointer-events: none;
+        user-select: none;
     }
 }
 
@@ -275,35 +314,43 @@ body input {
     }
 }
 #draw_bar {
-    left: 80px;
-    top: 100px;
+    left: -9999px;
+    top: -9999px;
     width: max-content;
     height: auto;
     position: fixed;
     z-index: 100;
     transition:
-        opacity 0.18s ease,
-        transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+        opacity 0.16s ease,
+        transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
 }
 #draw_main {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     width: max-content;
-    padding: 5px 6px;
-    border-radius: 13px;
+    height: calc(var(--bar-size) + 8px);
+    box-sizing: border-box;
+    padding: 4px 6px;
+    border-radius: 11px;
+}
+#draw_bar[data-dock="inline"] > #draw_main {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right: none;
+    padding-right: 6px;
 }
 #draw_main > div,
 .draw_items > div {
     width: var(--bar-size);
     height: var(--bar-size);
-    border-radius: 8px;
+    border-radius: 7px;
     position: relative;
     flex-shrink: 0;
     transition:
-        background-color 0.16s ease,
-        transform 0.16s ease;
+        background-color 0.15s ease,
+        transform 0.15s ease;
     &:not(:has(.range-b)):active {
         transform: var(--button-active);
     }

@@ -134,23 +134,35 @@ function selectEl<i extends string>(
     }
 
     function showList() {
-        for (const [v, el] of valueMap) {
-            el.el.classList.remove("selected");
-            if (v === value) el.el.classList.add("selected");
+        for (const [v, itemEl] of valueMap) {
+            itemEl.el.classList.remove("selected");
+            if (v === value) itemEl.el.classList.add("selected");
         }
-        const rect = handleEl.el.getBoundingClientRect();
-        selectEl
-            .clear()
-            .addInto()
-            .add(Array.from(valueMap.values()))
-            .style({
-                position: "fixed",
-                zIndex: 9999,
-                top: `${rect.top}px`,
-                left: `${rect.left}px`,
-                margin: 0,
-            });
+        const btnRect = el.el.getBoundingClientRect();
+        selectEl.clear().addInto().add(Array.from(valueMap.values())).style({
+            position: "fixed",
+            zIndex: 9999,
+            top: "0px",
+            left: "0px",
+            margin: 0,
+        });
         selectEl.el.showPopover();
+        const menuW = selectEl.el.offsetWidth || 120;
+        const menuH = selectEl.el.offsetHeight || 100;
+        const margin = 8;
+        const gap = 6;
+        const left = Math.max(
+            margin,
+            Math.min(btnRect.left, window.innerWidth - menuW - margin),
+        );
+        const top =
+            btnRect.bottom + gap + menuH <= window.innerHeight - margin
+                ? btnRect.bottom + gap
+                : Math.max(margin, btnRect.top - menuH - gap);
+        selectEl.style({
+            left: `${Math.round(left)}px`,
+            top: `${Math.round(top)}px`,
+        });
     }
 
     const selectEl = view().attr({ popover: "auto" }).class("side_select_menu");
@@ -775,7 +787,8 @@ function drawM(v: boolean) {
  * 编辑栏跟踪工具栏（横向双层悬浮胶囊对齐）
  */
 function trackLocation() {
-    const margin = 8;
+    if (drawBarManualMoved) return;
+    const margin = 10;
     const stackGap = 6;
     const toolW = toolBar.offsetWidth;
     const toolH = toolBar.offsetHeight;
@@ -784,6 +797,30 @@ function trackLocation() {
     const maxW = window.innerWidth;
     const maxH = window.innerHeight;
 
+    if (
+        toolBar.dataset.dock === "inline" &&
+        drawW + toolW <= maxW - margin * 2
+    ) {
+        drawBar.dataset.dock = "inline";
+        const clampedToolLeft = Math.max(
+            margin + drawW,
+            Math.min(toolBar.offsetLeft, maxW - toolW - margin),
+        );
+        const barH = Math.max(toolH, drawH);
+        const clampedTop = Math.max(
+            margin,
+            Math.min(toolBar.offsetTop, maxH - barH - margin),
+        );
+        toolBar.style.left = `${Math.round(clampedToolLeft)}px`;
+        toolBar.style.top = `${Math.round(clampedTop + (barH - toolH) / 2)}px`;
+        drawBar.style.left = `${Math.round(clampedToolLeft - drawW)}px`;
+        drawBar.style.top = `${Math.round(clampedTop + (barH - drawH) / 2)}px`;
+        scheduleElementBarPosition();
+        return;
+    }
+
+    drawBar.dataset.dock = "stack";
+    toolBar.dataset.dock = "stack";
     const toolRight = toolBar.offsetLeft + toolW;
     const l = Math.max(
         margin,
@@ -803,6 +840,7 @@ function trackLocation() {
 
     drawBar.style.top = `${Math.round(top)}px`;
     drawBar.style.left = `${Math.round(l)}px`;
+    scheduleElementBarPosition();
 }
 
 // 在其他应用打开
@@ -2488,20 +2526,18 @@ function whBar(finalRect: rect) {
     whW.el.value = w;
     whH.el.value = h;
     checkWhBarWidth();
-    // 位置
+    // 位置（默认对齐选区左上角外侧，顶边空间不足时贴在选区左上角内侧）
     const zx = (finalRect[0] + editorP.x) * editorP.zoom;
     const zy = (finalRect[1] + editorP.y) * editorP.zoom;
-    const zw = finalRect[2] * editorP.zoom;
-    const dw = width;
-    const dh = 40;
+    const dw = whEl.el.offsetWidth || width;
+    const dh = whEl.el.offsetHeight || 28;
     const gap = 8;
 
-    let x: number;
-    x = zx + zw / 2 - dw / 2;
-    x = Math.max(gap, Math.min(winWidth - dw - gap, Math.round(x)));
-
-    let y = zy - dh - gap;
-    y = Math.max(gap, Math.min(winHeight - dh - gap, Math.round(y)));
+    const insideTop = zy - dh - gap < gap;
+    const rawX = insideTop ? zx + gap : zx;
+    const rawY = insideTop ? zy + gap : zy - dh - gap;
+    const x = Math.max(gap, Math.min(winWidth - dw - gap, Math.round(rawX)));
+    const y = Math.max(gap, Math.min(winHeight - dh - gap, Math.round(rawY)));
 
     whEl.style({
         transform: `translate(${x}px, ${y}px)`,
@@ -2825,12 +2861,86 @@ function followBar(op?: { x: number; y: number }) {
     const maxHeight = window.innerHeight;
     const toolW = toolBar.offsetWidth;
     const toolH = toolBar.offsetHeight;
+    const drawW = drawBarMainEl.el.offsetWidth || drawBar.offsetWidth;
     const drawH = drawBarMainEl.el.offsetHeight || drawBar.offsetHeight;
-    const gap = barGap;
-    const stackGap = 6;
-    const margin = 8;
-    const stackH = toolH + stackGap + drawH;
+    const gap = Math.max(barGap, 10);
+    const margin = 10;
+    const innerPad = 12;
 
+    if (!drawBarManualMoved && drawW + toolW <= maxWidth - margin * 2) {
+        drawBar.dataset.dock = "inline";
+        toolBar.dataset.dock = "inline";
+        const totalW = drawW + toolW;
+        const barH = Math.max(toolH, drawH);
+        let top = 0;
+        let insideSelection = false;
+
+        if (y2 + gap + barH <= maxHeight - margin) {
+            top = y2 + gap;
+            drawBarPosi = "bottom";
+        } else if (y1 - gap - barH >= margin) {
+            top = y1 - gap - barH;
+            drawBarPosi = "top";
+        } else {
+            top = Math.min(y2, maxHeight) - innerPad - barH;
+            drawBarPosi = "top";
+            insideSelection = true;
+        }
+        top = Math.max(margin, Math.min(top, maxHeight - barH - margin));
+
+        const anchorRight = insideSelection
+            ? Math.min(x2, maxWidth) - innerPad
+            : Math.min(x2, maxWidth - margin);
+        let dockLeft = anchorRight - totalW;
+        if (dockLeft < margin) {
+            dockLeft = Math.max(
+                margin,
+                Math.min(x1, maxWidth - totalW - margin),
+            );
+        } else {
+            dockLeft = Math.min(dockLeft, maxWidth - totalW - margin);
+        }
+
+        if (!insideSelection && drawBarPosi === "top") {
+            const whW = whEl.el.offsetWidth || 96;
+            const whH = whEl.el.offsetHeight || 28;
+            const whLeft = Math.max(8, Math.round(x1));
+            const whRight = whLeft + whW;
+            const whTop = y1 - whH - 8;
+            if (dockLeft < whRight + 8 && whTop >= 8) {
+                if (whRight + 8 + totalW <= maxWidth - margin) {
+                    dockLeft = whRight + 8;
+                } else if (whTop - 6 - barH >= margin) {
+                    top = whTop - 6 - barH;
+                } else {
+                    top = Math.max(
+                        margin,
+                        Math.min(y2, maxHeight) - innerPad - barH,
+                    );
+                    dockLeft = Math.max(
+                        margin,
+                        Math.min(
+                            Math.min(x2, maxWidth) - innerPad - totalW,
+                            maxWidth - totalW - margin,
+                        ),
+                    );
+                }
+            }
+        }
+
+        drawBar.style.left = `${Math.round(dockLeft)}px`;
+        drawBar.style.top = `${Math.round(top + (barH - drawH) / 2)}px`;
+        toolBar.style.left = `${Math.round(dockLeft + drawW)}px`;
+        toolBar.style.top = `${Math.round(top + (barH - toolH) / 2)}px`;
+        drawBar.style.opacity = toolBar.style.opacity = "1";
+        scheduleElementBarPosition();
+        return;
+    }
+
+    drawBar.dataset.dock = "stack";
+    toolBar.dataset.dock = "stack";
+    const stackGap = 6;
+    const stackH = toolH + stackGap + drawH;
     let top = 0;
     if (y2 + gap + stackH <= maxHeight - margin) {
         top = y2 + gap;
@@ -2842,7 +2952,7 @@ function followBar(op?: { x: number; y: number }) {
         top = y2 + gap;
         drawBarPosi = "top";
     } else {
-        top = Math.min(y2, maxHeight) - margin - toolH;
+        top = Math.min(y2, maxHeight) - innerPad - toolH;
         drawBarPosi = "top";
     }
     top = Math.max(margin, Math.min(top, maxHeight - toolH - margin));
@@ -3386,7 +3496,10 @@ function showSideBarIndex(index: number) {
 
             el.style({ display: "", width: `${contentW}px` });
 
-            const desiredLeft = anchor * (bSize + itemGap);
+            const anchorEl = drawMainTools[anchor]?.el.el;
+            const desiredLeft = anchorEl
+                ? anchorEl.offsetLeft
+                : anchor * (bSize + itemGap);
             const minLeft = 8 - barRect.left;
             const maxLeft = window.innerWidth - 8 - panelW - barRect.left;
             const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
@@ -4032,7 +4145,12 @@ const toolsX: Record<功能, { el: ElType<HTMLElement>; f: () => void }> = {
             toolsX.close.f();
         },
     },
-    copy: { el: iconEl("copy").attr({ title: "复制" }), f: () => runCopy() },
+    copy: {
+        el: iconEl("copy")
+            .attr({ title: "复制" })
+            .add(ele("span").class("tool_copy_label").add(t("完成"))),
+        f: () => runCopy(),
+    },
     save: { el: iconEl("save").attr({ title: "保存" }), f: () => runSave() },
 };
 
@@ -4077,13 +4195,51 @@ toolBarEl.style({
     top: store.get("工具栏.初始位置.top"),
 });
 
-const toolsOrder = store.get("工具栏.功能");
+const legacyToolsOrderKey =
+    "ocr,translate,ding,dingLive,record,long,editor,QR,search,open,screens,save,close,copy";
+const upgradedToolsOrder: 功能[] = [
+    "ocr",
+    "translate",
+    "long",
+    "record",
+    "QR",
+    "search",
+    "editor",
+    "open",
+    "dingLive",
+    "screens",
+    "ding",
+    "save",
+    "close",
+    "copy",
+];
+let toolsOrder = store.get("工具栏.功能");
+if (toolsOrder.join(",") === legacyToolsOrderKey) {
+    toolsOrder = upgradedToolsOrder;
+    store.set("工具栏.功能", toolsOrder);
+}
 for (const g of tools) {
     const id = g;
     const i = toolsOrder.indexOf(id);
     const el = toolsX[id].el;
-    if (i !== -1) el.style({ order: String(i) });
+    if (i !== -1) el.style({ order: String(i * 10) });
     else el.style({ display: "none" });
+}
+const toolGroupOf = (id: 功能): "ai" | "ext" | "out" => {
+    if (id === "ocr" || id === "translate") return "ai";
+    if (id === "ding" || id === "save" || id === "close" || id === "copy")
+        return "out";
+    return "ext";
+};
+for (let idx = 1; idx < toolsOrder.length; idx++) {
+    const prev = toolsOrder[idx - 1];
+    const curr = toolsOrder[idx];
+    if (prev && curr && toolGroupOf(prev) !== toolGroupOf(curr)) {
+        ele("span")
+            .class("pun-bar-sep")
+            .style({ order: String(idx * 10 - 5) })
+            .addInto(toolBarEl);
+    }
 }
 
 const drawBarEl = view().attr({ id: "draw_bar" }).addInto();
@@ -4241,7 +4397,23 @@ const drawToolEntries = clipDrawTools.map((meta) => ({
 const drawToolEntryMap = new Map(
     drawToolEntries.map((entry) => [entry.key, entry]),
 );
-const configuredDrawToolKeys = store.get("图像编辑.编辑栏.功能");
+const legacyDrawToolKeys =
+    "draw.free,shape.rect,shape.text,shape.arrow,shape.number,filter.pixelate";
+const upgradedDrawToolKeys = [
+    "shape.rect",
+    "shape.circle",
+    "shape.arrow",
+    "draw.free",
+    "filter.pixelate",
+    "shape.text",
+    "shape.number",
+    "action.undo",
+];
+let configuredDrawToolKeys = store.get("图像编辑.编辑栏.功能");
+if (configuredDrawToolKeys.join(",") === legacyDrawToolKeys) {
+    configuredDrawToolKeys = upgradedDrawToolKeys;
+    store.set("图像编辑.编辑栏.功能", configuredDrawToolKeys);
+}
 const visibleDrawTools = configuredDrawToolKeys.flatMap((key) => {
     const entry = drawToolEntryMap.get(key);
     return entry ? [entry] : [];
@@ -4330,8 +4502,18 @@ const drawMainTools: DrawMainTool[] = [
     ...visibleMainTools,
     ...(hiddenDrawTools.length > 0 ? [moreMainTool] : []),
 ];
-for (const { el } of drawMainTools) {
-    drawBarMainEl.add(el);
+for (const [idx, item] of drawMainTools.entries()) {
+    if (idx === 1) {
+        ele("span").class("pun-bar-sep").addInto(drawBarMainEl);
+    } else if (
+        idx > 1 &&
+        (item.category === "action" || item.category === "more") &&
+        drawMainTools[idx - 1]?.category !== "action" &&
+        drawMainTools[idx - 1]?.category !== "more"
+    ) {
+        ele("span").class("pun-bar-sep").addInto(drawBarMainEl);
+    }
+    drawBarMainEl.add(item.el);
 }
 
 const drawMoreItems = hiddenDrawTools.map((entry) => entry.el);
@@ -4943,6 +5125,7 @@ const barGap = 8;
 
 // 移动画画栏
 let drawBarMovingXY: [number, number] | null = null;
+let drawBarManualMoved = false;
 
 let nowType: keyof EditType;
 let selectEditType: EditType["select"] =
@@ -5138,14 +5321,65 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
 
     setSetting();
     inlineOcr.clear();
+    drawBarManualMoved = false;
+
+    const screensEl = toolsX.screens.el;
+    if (allScreens.length > 1) {
+        if (toolsOrder.includes("screens")) screensEl.el.style.display = "";
+        let minX = 0;
+        let maxX = 0;
+        let minY = 0;
+        let maxY = 0;
+        for (const sItem of allScreens) {
+            const right = sItem.bounds.x + sItem.bounds.width;
+            const bottom = sItem.bounds.y + sItem.bounds.height;
+            maxX = Math.max(maxX, right);
+            maxY = Math.max(maxY, bottom);
+            minX = Math.min(minX, sItem.bounds.x);
+            minY = Math.min(minY, sItem.bounds.y);
+        }
+        const tWidth = maxX - minX;
+        const tHeight = maxY - minY;
+        const el = view();
+        for (const sItem of allScreens) {
+            const x = (sItem.bounds.x - minX) / tWidth;
+            const y = (sItem.bounds.y - minY) / tHeight;
+            const width = sItem.bounds.width / tWidth;
+            const height = sItem.bounds.height / tHeight;
+            const div = view().style({
+                width: `${width * 100}%`,
+                height: `${height * 100}%`,
+                left: `${x * 100}%`,
+                top: `${y * 100}%`,
+            });
+            if (sItem.id === nowScreenId) {
+                div.el.classList.add("now_screen");
+            }
+            el.add(div);
+            div.on("click", () => {
+                el.query(".now_screen")?.el.classList.remove("now_screen");
+                div.class("now_screen");
+                setScreen(sItem);
+            });
+        }
+        screensEl.clear().add(el);
+    } else {
+        screensEl.el.style.display = "none";
+    }
+
     if (!rectSelect) {
         activeHoverRect = null;
         hoverLayerIndex = 0;
         hoverListKey = "";
         edgeKey = "";
         hideHoverBox();
-        isShowBars = false;
-        showBars(false);
+        isShowBars = !store.get("工具栏.稍后出现");
+        if (isShowBars) {
+            followBar();
+            showBars(true);
+        } else {
+            showBars(false);
+        }
         whEl.style({ opacity: "0", pointerEvents: "none" });
     } else {
         isShowBars = true;
@@ -5156,48 +5390,6 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
     document.body.style.opacity = "";
 
     renderSend("clip_show", []);
-    const screensEl = toolsX.screens.el;
-    if (allScreens.length > 1) {
-        let minX = 0;
-        let maxX = 0;
-        let minY = 0;
-        let maxY = 0;
-        for (const i of allScreens) {
-            const right = i.bounds.x + i.bounds.width;
-            const bottom = i.bounds.y + i.bounds.height;
-            maxX = Math.max(maxX, right);
-            maxY = Math.max(maxY, bottom);
-            minX = Math.min(minX, i.bounds.x);
-            minY = Math.min(minY, i.bounds.y);
-        }
-        const tWidth = maxX - minX;
-        const tHeight = maxY - minY;
-        const el = view();
-        for (const i of allScreens) {
-            const x = (i.bounds.x - minX) / tWidth;
-            const y = (i.bounds.y - minY) / tHeight;
-            const width = i.bounds.width / tWidth;
-            const height = i.bounds.height / tHeight;
-            const div = view().style({
-                width: `${width * 100}%`,
-                height: `${height * 100}%`,
-                left: `${x * 100}%`,
-                top: `${y * 100}%`,
-            });
-            if (i.id === nowScreenId) {
-                div.el.classList.add("now_screen");
-            }
-            el.add(div);
-            div.on("click", () => {
-                el.query(".now_screen")?.el.classList.remove("now_screen");
-                div.class("now_screen");
-                setScreen(i);
-            });
-        }
-        screensEl.clear().add(el);
-    } else {
-        screensEl.el.style.display = "none";
-    }
 
     setDefaultAction(act);
 
@@ -5780,11 +5972,16 @@ for (const xel of whL) {
 
 // 快捷键全屏选择
 hotkeys("ctrl+a, command+a", () => {
+    rectSelect = true;
+    hideHoverBox();
     finalRect = [0, 0, mainCanvas.width, mainCanvas.height];
     hisPush();
     setClipCursor("crosshair");
     direction = "";
     drawClipRect();
+    isShowBars = true;
+    followBar();
+    showBars(true);
 });
 
 // 生成取色器
@@ -5893,8 +6090,12 @@ document.onmousemove = (e) => {
 
             // 画板栏移动
             if (drawBarMovingXY) {
+                drawBarManualMoved = true;
+                drawBar.dataset.dock = "stack";
+                toolBar.dataset.dock = "stack";
                 drawBar.style.left = `${ev.clientX - drawBarMovingXY[0]}px`;
                 drawBar.style.top = `${ev.clientY - drawBarMovingXY[1]}px`;
+                scheduleElementBarPosition();
             }
         }
     });
