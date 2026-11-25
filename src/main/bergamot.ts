@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
     mkdir,
@@ -11,10 +10,15 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
-import { app, net } from "electron";
+import { app } from "electron";
 import { mainHandle, mainSend } from "../../lib/ipc";
 import glueSource from "./bergamot-translator.js?raw";
 import workerSource from "./bergamot-worker.cjs?raw";
+import {
+    fetchGitHubBytes,
+    fetchGitHubJson,
+    setGithubBaseResolver,
+} from "./githubFetch";
 
 /**
  * Firefox Translations 的 Bergamot 运行时和模型（MPL-2.0）。
@@ -143,19 +147,6 @@ const LANG_ALIAS: Record<string, string> = {
     yue: "zh-Hant",
 };
 
-const FALLBACK_GITHUB_BASES = [
-    "https://gh-proxy.org/https://github.com/",
-    "https://gh-proxy.com/https://github.com/",
-    "https://ghfast.top/https://github.com/",
-    "https://ghproxy.net/https://github.com/",
-    "https://ghfile.geekertao.top/https://github.com/",
-    "https://github.com/",
-];
-const FETCH_UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-let githubBase = (path: string) => `https://github.com/${path}`;
-let preferredMirrorBase: string | undefined;
 let manifestPromise: Promise<BergamotManifest> | undefined;
 let runtimePromise: Promise<FileSpec> | undefined;
 const downloads = new Map<string, Promise<string>>();
@@ -171,132 +162,13 @@ function bundledDir() {
     return join(app.getAppPath(), "assets", "bergamot");
 }
 
-function releaseAssetCandidates(
-    asset: string,
-): { base: string; url: string }[] {
-    const relPath = `${REPO}/releases/download/${RELEASE_TAG}/${encodeURIComponent(asset)}`;
-    const list: { base: string; url: string }[] = [];
-    const seen = new Set<string>();
-    const add = (base: string, url: string) => {
-        if (!url || seen.has(url)) return;
-        seen.add(url);
-        list.push({ base, url });
-    };
-
-    const userUrl = githubBase(relPath);
-    const isCustomUserMirror =
-        userUrl && !userUrl.startsWith("https://github.com/");
-    if (isCustomUserMirror) {
-        add(userUrl.slice(0, userUrl.length - relPath.length), userUrl);
-    }
-    if (preferredMirrorBase) {
-        add(preferredMirrorBase, `${preferredMirrorBase}${relPath}`);
-    }
-    for (const base of FALLBACK_GITHUB_BASES) {
-        add(base, `${base}${relPath}`);
-    }
-    if (userUrl) {
-        add(userUrl.slice(0, userUrl.length - relPath.length), userUrl);
-    }
-    return list;
-}
-
-async function fetchWithTimeout(
-    url: string,
-    connectTimeoutMs: number,
-): Promise<Response> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), connectTimeoutMs);
-    const doFetch = net?.fetch ? net.fetch.bind(net) : fetch;
-    try {
-        return await doFetch(url, {
-            headers: { "User-Agent": FETCH_UA },
-            signal: controller.signal,
-        });
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-async function fetchJsonFromMirrors<T>(
-    asset: string,
-    validate?: (data: T) => boolean,
-): Promise<T> {
-    const candidates = releaseAssetCandidates(asset);
-    let lastError: unknown;
-    for (const { base, url } of candidates) {
-        try {
-            const response = await fetchWithTimeout(url, 12_000);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            const data = (await response.json()) as T;
-            if (validate && !validate(data)) {
-                throw new Error("清单内容格式无效");
-            }
-            preferredMirrorBase = base;
-            return data;
-        } catch (error) {
-            lastError = error;
-            console.warn(`Bergamot 清单线路失败 (${base}):`, error);
-        }
-    }
-    const reason =
-        lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(
-        `无法连接模型下载服务器（已自动尝试 ${candidates.length} 条镜像线路，最后错误：${reason}），请检查网络或代理设置后重试`,
-    );
-}
-
-async function fetchBytesFromUrl(
-    url: string,
-    onProgress?: (progress: { received: number; total?: number }) => void,
-): Promise<Buffer> {
-    const response = await fetchWithTimeout(url, 15_000);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-
-    const length = response.headers.get("content-length");
-    const total = length ? Number(length) : undefined;
-
-    if (!response.body) {
-        return Buffer.from(await response.arrayBuffer());
-    }
-
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let received = 0;
-    let lastChunkAt = Date.now();
-    let stalled = false;
-    const stallCheck = setInterval(() => {
-        if (Date.now() - lastChunkAt > 25_000) {
-            stalled = true;
-            void reader.cancel("download stalled");
-        }
-    }, 5_000);
-
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            lastChunkAt = Date.now();
-            chunks.push(value);
-            received += value.length;
-            onProgress?.({ received, total });
-        }
-    } finally {
-        clearInterval(stallCheck);
-    }
-    if (stalled) {
-        throw new Error("下载速度过慢或连接中断");
-    }
-    return Buffer.concat(chunks, received);
+function releaseRelPath(asset: string) {
+    return `${REPO}/releases/download/${RELEASE_TAG}/${encodeURIComponent(asset)}`;
 }
 
 function getManifest() {
-    manifestPromise ??= fetchJsonFromMirrors<BergamotManifest>(
-        "manifest.json",
+    manifestPromise ??= fetchGitHubJson<BergamotManifest>(
+        releaseRelPath("manifest.json"),
         (data) => Boolean(data && typeof data === "object" && data.models),
     ).catch((error) => {
         manifestPromise = undefined;
@@ -347,45 +219,14 @@ async function downloadFile(
 
     const promise = (async () => {
         await mkdir(dir, { recursive: true });
-        const candidates = releaseAssetCandidates(asset);
-        let bytes: Buffer | undefined;
-        let lastError: unknown;
-
-        for (const { base, url } of candidates) {
-            try {
-                const downloaded = await fetchBytesFromUrl(url, (progress) =>
-                    onProgress?.({
-                        ...progress,
-                        file: file.filename,
-                    }),
-                );
-                const hash = createHash("sha256")
-                    .update(downloaded)
-                    .digest("hex");
-                if (hash !== file.hash) {
-                    throw new Error(`文件校验不匹配 (${file.filename})`);
-                }
-                preferredMirrorBase = base;
-                bytes = downloaded;
-                break;
-            } catch (error) {
-                lastError = error;
-                console.warn(
-                    `Bergamot 文件下载失败 (${file.filename} @ ${base}):`,
-                    error,
-                );
-            }
-        }
-
-        if (!bytes) {
-            const reason =
-                lastError instanceof Error
-                    ? lastError.message
-                    : String(lastError);
-            throw new Error(
-                `模型文件 ${file.filename} 下载失败（已尝试 ${candidates.length} 条镜像线路：${reason}）`,
-            );
-        }
+        const bytes = await fetchGitHubBytes(releaseRelPath(asset), {
+            expectedSha256: file.hash,
+            onProgress: (progress) =>
+                onProgress?.({
+                    ...progress,
+                    file: file.filename,
+                }),
+        });
 
         const tmp = `${dest}.tmp`;
         await writeFile(tmp, bytes);
@@ -983,7 +824,7 @@ let inited = false;
 export function initBergamot(getBaseUrl: (path: string) => string) {
     if (inited) return;
     inited = true;
-    githubBase = getBaseUrl;
+    setGithubBaseResolver(getBaseUrl);
     mainHandle("bergamot_translate", ([data]) =>
         translateBergamot(data.texts, data.from, data.to),
     );

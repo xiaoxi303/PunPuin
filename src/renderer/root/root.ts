@@ -65,16 +65,18 @@ function initStyle(
         .style({
             position: "fixed",
             pointerEvents: "none",
-            padding: "5px 10px",
-            borderRadius: "8px",
+            padding: "5px 11px",
+            borderRadius: "9px",
             fontSize: "12px",
             fontWeight: "500",
             lineHeight: "1.35",
             width: "auto",
             height: "auto",
             zIndex: 9999,
-            transition: "var(--transition) opacity",
+            transition:
+                "opacity var(--transition), transform var(--transition)",
             whiteSpace: "pre",
+            transform: "translateY(3px)",
             opacity: 0,
         })
         .addInto()
@@ -82,7 +84,7 @@ function initStyle(
             el.innerText = v;
         });
 
-    const tipDelay = 240;
+    const tipDelay = 220;
     let tipEl: HTMLElement | null = null;
     let tipTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -90,7 +92,7 @@ function initStyle(
         clearTimeout(tipTimer);
         tipTimer = undefined;
         tipEl = null;
-        topTip.style({ opacity: 0 });
+        topTip.style({ opacity: 0, transform: "translateY(3px)" });
     }
 
     function showTip(el: HTMLElement) {
@@ -109,12 +111,13 @@ function initStyle(
             0,
             Math.min(rect.left + rect.width / 2 - tw / 2, ow - tw),
         );
-        let top = rect.bottom + 4;
+        let top = rect.bottom + 6;
         if (top > oh - th) {
-            top = rect.top - th - 4;
+            top = rect.top - th - 6;
         }
         topTip.style({
             opacity: 1,
+            transform: "translateY(0)",
             left: `${left}px`,
             top: `${Math.max(Math.min(top, oh - th), 0)}px`,
         });

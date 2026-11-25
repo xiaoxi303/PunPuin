@@ -20,7 +20,9 @@ body {
     color: var(--font-color);
     font-family: var(--main-font);
     background: var(--bg);
-    border-radius: var(--border-radius);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
 }
 
 #lc_head {
@@ -29,8 +31,13 @@ body {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 0 8px;
-    background: color-mix(in srgb, var(--emphasis-color) 25%, var(--bg));
+    padding: 0 10px;
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--emphasis-color) 18%, var(--surface)),
+        var(--surface)
+    );
+    border-bottom: 1px solid var(--border-subtle);
     -webkit-app-region: drag;
     cursor: grab;
     user-select: none;

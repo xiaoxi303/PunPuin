@@ -36,24 +36,75 @@ pack(document.body)
         display: "flex",
         flexDirection: "column",
         height: "100vh",
+        padding: "10px",
+        gap: "10px",
     })
     .class(Class.gap);
 
-const input = ele("textarea").style({
-    width: "100%",
-    padding: "8px",
-    border: "none",
-    // @ts-ignore
-    "field-sizing": "content",
-    "min-height": "4lh",
-    maxHeight: "50%",
-    outline: "none",
-    transition: "none",
-    flexShrink: 0,
+const charCount = txt("0 字").style({
+    fontSize: "11.5px",
+    color: cssColor.font.llight,
+    fontFamily: "var(--monospace)",
 });
+
+const clearInputBtn = button("×")
+    .attr({ title: "清空" })
+    .style({
+        width: "22px",
+        height: "22px",
+        padding: "0",
+        borderRadius: "999px",
+        fontSize: "14px",
+        lineHeight: "1",
+    })
+    .on("click", () => {
+        input.el.value = "";
+        updateCharCount();
+        results.clear();
+        input.el.focus();
+    });
+
+const input = ele("textarea")
+    .attr({ placeholder: t("输入或粘贴需要翻译的文本...") })
+    .style({
+        width: "100%",
+        padding: "10px 12px 4px",
+        border: "none",
+        // @ts-ignore
+        "field-sizing": "content",
+        "min-height": "3.5lh",
+        maxHeight: "36vh",
+        outline: "none",
+        boxShadow: "none",
+        transition: "none",
+        background: "transparent",
+    });
+
+function updateCharCount() {
+    const len = input.el.value.trim().length;
+    charCount.sv(`${len} ${t("字")}`);
+    clearInputBtn.style({ display: len > 0 ? "inline-flex" : "none" });
+}
+
+const inputCard = view("y")
+    .class("pun-card")
+    .style({ flexShrink: 0, overflow: "hidden" })
+    .add([
+        input,
+        view("x")
+            .style({
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "4px 10px 8px",
+            })
+            .add([charCount, clearInputBtn]),
+    ]);
+
 const lans = view("x")
     .style({
         justifyContent: "center",
+        alignItems: "center",
+        flexShrink: 0,
     })
     .class(Class.gap);
 
@@ -78,15 +129,26 @@ const lansTo = ele("select")
     .bindGet((el) => el.value)
     .bindSet((lan: string, el) => setLan(el, lan));
 
+const swapLangBtn = iconButton("replace")
+    .attr({ title: "互换语言" })
+    .on("click", () => {
+        const fromV = lansFrom.gv;
+        const toV = lansTo.gv;
+        if (!toV || fromV === "auto") return;
+        lansFrom.sv(toV);
+        lansTo.sv(fromV);
+        translate(input.el.value);
+    });
+
 const results = view("y").style({
-    gap: "16px",
-    padding: "8px",
+    gap: "12px",
+    padding: "2px 2px 10px",
     overflow: "auto",
 });
 
-lans.add([lansFrom, lansTo]);
+lans.add([lansFrom, swapLangBtn, lansTo]);
 
-input.addInto();
+inputCard.addInto();
 lans.addInto();
 results.addInto();
 
@@ -119,10 +181,18 @@ function translate(_text: string) {
             display: fromLan === "auto" ? "none" : "", // todo 读取自动语言
         });
         const e = frame(`result${i.id}`, {
-            _: view().style({ width: "100%" }),
+            _: view().class("pun-card").style({
+                width: "100%",
+                padding: "12px 14px",
+            }),
             title: {
                 _: view("x")
-                    .style({ "align-items": "center" })
+                    .style({
+                        "align-items": "center",
+                        marginBottom: "8px",
+                        paddingBottom: "8px",
+                        borderBottom: "1px solid var(--border-subtle)",
+                    })
                     .class(Class.smallSize)
                     .class(Class.gap),
                 copy,
@@ -130,17 +200,22 @@ function translate(_text: string) {
                 reTry,
                 checkEl,
                 _spacer: spacer(),
-                name: txt(i.name).style({ opacity: 0.5 }),
+                name: txt(i.name).class("pun-pill"),
             },
-            content: pText(""),
+            content: pText(t("翻译中...")).style({
+                lineHeight: "1.6",
+                userSelect: "text",
+            }),
             reTrans: pText("").style({
                 marginBlockStart: "8px",
                 color: cssColor.font.light,
+                fontSize: "0.92em",
             }),
         });
         results.add(e.el);
         const c = e.els.content;
         const f = () => {
+            c.sv(t("翻译中..."));
             const ff = fanyiqi.get(i.id);
             if (!ff) throw `翻译器"${i.id}"不存在`;
             ff
@@ -152,6 +227,7 @@ function translate(_text: string) {
                     c.sv(ttext);
                     copy.on("click", () => {
                         writeText(ttext);
+                        copy.attr({ title: t("已复制") });
                     });
                     save.on("click", () => {
                         saveW({
@@ -324,6 +400,7 @@ lansTo.add(
 );
 
 input.el.value = inputText;
+updateCharCount();
 
 const ft = (await initFastText()).FastText();
 const fasttext = await ft.loadModel();
@@ -348,10 +425,11 @@ input
 let lastTrans: NodeJS.Timeout;
 
 input.on("input", () => {
+    updateCharCount();
     if (composing) return;
     if (lastTrans) clearTimeout(lastTrans);
     lastTrans = setTimeout(() => {
         translate(input.el.value);
-    }, 2000);
+    }, 1200);
     detectLan(input.el.value);
 });

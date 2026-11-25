@@ -33,6 +33,7 @@ import {
     longOverlapLevel,
 } from "../../../lib/longStitch";
 import open_with from "../../../lib/open_with";
+import { evalSafeMath } from "../../../lib/safeMath";
 import store from "../../../lib/store/renderStore";
 import { t } from "../../../lib/translate/translate";
 import { isWaylandSession } from "../../../lib/wayland";
@@ -2515,14 +2516,7 @@ function checkWhBarWidth() {
 
 function changeWH(el: ElType<HTMLInputElement>) {
     const l0 = whL.map((i) => i.el.value);
-    const l = l0.map((string) => {
-        // 排除（数字运算符空格）之外的非法输入
-        if (string.match(/[\d+\-*/.\s()]/g)?.length !== string.length)
-            return null;
-        // todo sandbox math
-        // biome-ignore lint: 已经过滤（？） 计算math
-        return eval(string);
-    });
+    const l = l0.map((string) => evalSafeMath(string));
 
     if (l.includes(null)) {
         whBar(finalRect);

@@ -147,6 +147,18 @@ type Message = {
         | ((type: "快捷键2", name: 功能, key: string) => boolean);
     reloadMainFromSetting: () => void;
     setting_start_clip: () => void;
+    setting_quick_action: (
+        action: "clip" | "quick_clip" | "ding_clipboard" | "main_window",
+    ) => void;
+    github_download_asset: (data: {
+        id: string;
+        relPath: string;
+    }) => Uint8Array;
+    github_download_progress: (data: {
+        id: string;
+        received: number;
+        total?: number;
+    }) => void;
     getDefaultSetting: () => setting;
     reload: () => void;
     exit: () => void;

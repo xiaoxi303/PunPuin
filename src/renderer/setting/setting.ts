@@ -2269,14 +2269,21 @@ const xs: Record<
 
 const main: {
     pageName: string;
+    icon?: IconType;
     settings?: KeyPath[];
     desc?: string;
     items?: { title: string; desc?: string; settings: KeyPath[] }[];
     isMemo?: boolean;
 }[] = [
-    { pageName: "常用", isMemo: true },
+    {
+        pageName: "常用",
+        icon: "star",
+        desc: "快速触发截屏、贴图与常用核心设置",
+        isMemo: true,
+    },
     {
         pageName: "截屏",
+        icon: "rect_select",
         items: [
             {
                 title: "工具栏",
@@ -2342,6 +2349,7 @@ const main: {
     },
     {
         pageName: "图像编辑",
+        icon: "draw",
         items: [
             {
                 title: "复制偏移",
@@ -2352,6 +2360,7 @@ const main: {
     },
     {
         pageName: "文字识别（OCR）",
+        icon: "ocr",
         settings: [
             "OCR.类型",
             "OCR.离线切换",
@@ -2384,12 +2393,14 @@ const main: {
     },
     {
         pageName: "人工智能",
+        icon: "ai_check",
         desc: "配置OCR、录屏背景移除等人工智能",
         settings: ["AI.运行后端", "AI.在线模型"],
         items: [{ title: "魔法橡皮模型", settings: ["_inpaint"] }],
     },
     {
         pageName: "录屏",
+        icon: "record",
         desc: "分为普通录屏和超级录屏，普通录屏固定位置和大小录制，超级录屏适合录制操作演示，提供自动运镜效果",
         items: [
             {
@@ -2437,6 +2448,7 @@ const main: {
     },
     {
         pageName: "保存",
+        icon: "save",
         settings: [
             "保存名称.前缀",
             "保存名称.时间",
@@ -2450,6 +2462,7 @@ const main: {
     },
     {
         pageName: "贴图",
+        icon: "ding",
         settings: [
             "贴图.窗口.独立窗口",
             "贴图.窗口.双击",
@@ -2461,6 +2474,7 @@ const main: {
     },
     {
         pageName: "翻译",
+        icon: "translate",
         settings: ["翻译.翻译器"],
         items: [
             {
@@ -2485,6 +2499,7 @@ const main: {
     },
     {
         pageName: "编辑器",
+        icon: "text",
         items: [
             {
                 title: "编辑器",
@@ -2513,6 +2528,7 @@ const main: {
     },
     {
         pageName: "搜索与浏览",
+        icon: "search",
         items: [
             {
                 title: "自动",
@@ -2533,6 +2549,7 @@ const main: {
     },
     {
         pageName: "快捷键",
+        icon: "space",
         items: [
             {
                 title: "全局功能",
@@ -2672,6 +2689,7 @@ const main: {
     },
     {
         pageName: "全局",
+        icon: "setting",
         items: [
             { title: "启动", settings: ["_autostart", "启动提示"] },
             { title: "语言", settings: ["语言.语言"] },
@@ -2697,6 +2715,7 @@ const main: {
     },
     {
         pageName: "样式",
+        icon: "shapes",
         settings: ["全局.缩放", "_theme"],
         items: [
             {
@@ -2715,6 +2734,7 @@ const main: {
     },
     {
         pageName: "高级",
+        icon: "more",
         items: [
             {
                 title: "高级设置",
@@ -3125,8 +3145,9 @@ const sideNavItemClass = addClass(
         position: "relative",
         display: "flex",
         alignItems: "center",
+        gap: "10px",
         width: "100%",
-        padding: "9px 14px",
+        padding: "8px 12px",
         borderRadius: "10px",
         cursor: "pointer",
         fontSize: "13.5px",
@@ -3134,21 +3155,35 @@ const sideNavItemClass = addClass(
         transition: "all var(--transition)",
     },
     {
+        "& .nav-icon": {
+            width: "16px",
+            height: "16px",
+            flexShrink: 0,
+            opacity: 0.72,
+            transition:
+                "opacity var(--transition), transform var(--transition)",
+        },
         "&:hover": {
             backgroundColor: "var(--hover-color)",
             color: "var(--font-color)",
+        },
+        "&:hover .nav-icon": {
+            opacity: 0.95,
         },
         "&:has(input:checked)": {
             backgroundColor: "var(--accent-soft)",
             color: "var(--emphasis-color)",
             fontWeight: 600,
         },
+        "&:has(input:checked) .nav-icon": {
+            opacity: 1,
+        },
         "&:has(input:checked)::before": {
             content: '""',
             position: "absolute",
             left: "0",
-            top: "8px",
-            bottom: "8px",
+            top: "7px",
+            bottom: "7px",
             width: "3px",
             borderRadius: "999px",
             backgroundColor: "var(--emphasis-color)",
@@ -3159,31 +3194,127 @@ const sideNavItemClass = addClass(
 const quickClipBtnClass = addClass(
     {
         width: "100%",
-        height: "36px",
+        height: "38px",
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
+        justifyContent: "space-between",
+        paddingInline: "12px",
         gap: "8px",
         borderRadius: "10px",
-        backgroundColor: "var(--emphasis-color)",
+        background:
+            "linear-gradient(135deg, var(--emphasis-color), color-mix(in srgb, var(--emphasis-color) 76%, #06b6d4))",
         color: "var(--font-color-emphasis)",
         fontWeight: 600,
         fontSize: "13.5px",
         border: "none",
         outline: "none",
-        boxShadow: "var(--shadow-sm)",
+        boxShadow: "0 3px 12px var(--accent-glow)",
         cursor: "pointer",
         transition: "all var(--transition)",
     },
     {
         "&:hover": {
-            backgroundColor:
-                "color-mix(in srgb, var(--emphasis-color) 88%, #000)",
+            filter: "brightness(1.06)",
+            boxShadow: "0 5px 16px var(--accent-glow)",
         },
         "& .icon": {
             width: "16px",
             height: "16px",
             filter: "brightness(0) invert(1)",
+        },
+    },
+);
+
+const miniActionBtnClass = addClass(
+    {
+        flex: "1 1 0",
+        height: "32px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "5px",
+        paddingInline: "6px",
+        borderRadius: "8px",
+        backgroundColor: "var(--surface-2)",
+        outline: "1px solid var(--border-subtle)",
+        border: "none",
+        color: "var(--font-color)",
+        fontSize: "11.5px",
+        fontWeight: 500,
+        cursor: "pointer",
+        transition: "all var(--transition)",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+    },
+    {
+        "&:hover": {
+            backgroundColor: "var(--accent-soft)",
+            color: "var(--emphasis-color)",
+            outlineColor:
+                "color-mix(in srgb, var(--emphasis-color) 32%, transparent)",
+        },
+        "& .icon": {
+            width: "14px",
+            height: "14px",
+            flexShrink: 0,
+        },
+    },
+);
+
+const heroBannerClass = addClass(
+    {
+        padding: "20px 22px",
+        borderRadius: "16px",
+        background:
+            "linear-gradient(135deg, color-mix(in srgb, var(--emphasis-color) 11%, var(--surface)), var(--surface))",
+        border: "1px solid color-mix(in srgb, var(--emphasis-color) 20%, var(--border-subtle))",
+        boxShadow: "var(--shadow-sm)",
+        marginBottom: "18px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "16px",
+    },
+    {},
+);
+
+const quickGridCardClass = addClass(
+    {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: "8px",
+        padding: "13px 14px",
+        borderRadius: "12px",
+        backgroundColor: "var(--surface)",
+        border: "1px solid var(--border-subtle)",
+        outline: "none",
+        cursor: "pointer",
+        textAlign: "left",
+        height: "auto",
+        width: "100%",
+        transition:
+            "transform var(--transition), border-color var(--transition), box-shadow var(--transition), background-color var(--transition)",
+    },
+    {
+        "&:hover": {
+            transform: "translateY(-2px)",
+            borderColor:
+                "color-mix(in srgb, var(--emphasis-color) 42%, transparent)",
+            boxShadow: "var(--shadow)",
+            backgroundColor: "var(--surface)",
+        },
+        "& .q-icon": {
+            width: "30px",
+            height: "30px",
+            borderRadius: "8px",
+            backgroundColor: "var(--accent-soft)",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+        },
+        "& .q-icon .icon": {
+            width: "16px",
+            height: "16px",
         },
     },
 );
@@ -4718,59 +4849,43 @@ function inpaintEl() {
         const exists = fs.existsSync(file);
         el.clear().add([
             txt(exists ? t("已下载") : t("未下载")),
-            button(exists ? t("重新下载") : t("下载")).on("click", () => {
-                const pro = (() => {
-                    const mel = view().style({
-                        overflow: "hidden",
-                        width: baseWidth,
-                        height: "20px",
-                        borderRadius: "var(--border-radius)",
-                        backgroundColor: cssColor.bb,
-                    });
-                    const bel = view().style({
-                        width: "100%",
-                        height: "100%",
-                        backgroundColor: cssColor.main,
-                    });
-                    return mel.add(bel).bindSet((v: number) => {
-                        bel.style({
-                            width: `${Math.floor(v * 100)}%`,
-                        });
-                    });
-                })();
-                el.clear().add(pro);
-                const url = githubUrl(
-                    "xushengfeng/eSearch/releases/download/13.1.6/migan_pipeline_v2.onnx",
-                    "base",
+            button(exists ? t("重新下载") : t("下载")).on("click", async () => {
+                const pro = createDownloadProgressBar();
+                const statusEl = txt(t("下载中...")).style({
+                    fontSize: "12px",
+                    opacity: 0.78,
+                });
+                el.clear().add(
+                    view("y").style({ gap: "6px" }).add([pro, statusEl]),
                 );
-                fetch(url).then(async (res) => {
-                    if (!res.ok) {
-                        throw new Error(
-                            `下载失败: ${res.status} ${res.statusText}`,
-                        );
-                    }
-                    if (!res.body) {
-                        throw new Error("响应体中无数据");
-                    }
-                    const contentLength = res.headers.get("content-length");
-                    const totalBytes = contentLength
-                        ? Number.parseInt(contentLength, 10)
-                        : undefined;
-                    const reader = res.body.getReader();
-                    let downloadedBytes = 0;
-                    const chunks = [];
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        chunks.push(value);
-                        downloadedBytes += value.length;
-                        if (totalBytes) pro.sv(downloadedBytes / totalBytes);
-                    }
-                    const b = Buffer.from(await new Blob(chunks).arrayBuffer());
+                try {
+                    const b = await downloadGitHubAssetWithMirrors(
+                        "xushengfeng/eSearch/releases/download/13.1.6/migan_pipeline_v2.onnx",
+                        (percent) => {
+                            pro.sv(percent);
+                            statusEl.sv(
+                                `${t("下载中...")} ${Math.floor(percent * 100)}%`,
+                            );
+                        },
+                    );
                     fs.mkdirSync(dir, { recursive: true });
                     fs.writeFileSync(file, b);
                     render();
-                });
+                } catch (error) {
+                    const msg =
+                        error instanceof Error ? error.message : String(error);
+                    el.clear().add(
+                        view("y")
+                            .style({ gap: "6px" })
+                            .add([
+                                txt(`${t("下载失败")}：${msg}`).style({
+                                    color: "var(--danger)",
+                                    fontSize: "12.5px",
+                                }),
+                                button(t("重试")).on("click", () => render()),
+                            ]),
+                    );
+                }
             }),
             exists
                 ? button(t("删除")).on("click", () => {
@@ -4794,10 +4909,49 @@ type BergamotProgress = {
 };
 
 let onBergamotProgress: ((data: BergamotProgress) => void) | undefined;
+const githubAssetProgressHandlers = new Map<
+    string,
+    (data: { id: string; received: number; total?: number }) => void
+>();
 
 renderOn("bergamot_progress", ([data]) => {
     onBergamotProgress?.(data);
 });
+renderOn("github_download_progress", ([data]) => {
+    githubAssetProgressHandlers.get(data.id)?.(data);
+});
+
+async function downloadGitHubAssetWithMirrors(
+    relPath: string,
+    onProgress: (percent: number) => void,
+) {
+    const id = crypto.randomUUID();
+    githubAssetProgressHandlers.set(id, (data) => {
+        if (data.total && data.total > 0) {
+            onProgress(Math.min(1, data.received / data.total));
+        }
+    });
+    try {
+        return Buffer.from(
+            await renderInvoke("github_download_asset", [{ id, relPath }]),
+        );
+    } finally {
+        githubAssetProgressHandlers.delete(id);
+    }
+}
+
+function createDownloadProgressBar() {
+    const barFill = view().class("pun-progress-fill");
+    const track = view()
+        .class("pun-progress-track")
+        .style({ width: baseWidth, minWidth: "220px" })
+        .add(barFill);
+    return track.bindSet((v: number) => {
+        barFill.style({
+            width: `${Math.max(0, Math.min(100, Math.floor(v * 100)))}%`,
+        });
+    });
+}
 
 function openBergamotDialog() {
     const d = ele("dialog");
@@ -5388,84 +5542,43 @@ function ocrEl() {
             const downloadEl = view("y").add(
                 button(iconEl("down")).on("click", () => {
                     downloadEl.clear().add(
-                        getOcrList((i, p, download) => {
+                        getOcrList(async (i, p, download) => {
                             if (download) {
-                                const pro = (() => {
-                                    const mel = view().style({
-                                        overflow: "hidden",
-                                        width: baseWidth,
-                                        height: "20px",
-                                        borderRadius: "var(--border-radius)",
-                                        backgroundColor: cssColor.bb,
-                                    });
-                                    const bel = view().style({
-                                        width: "100%",
-                                        height: "100%",
-                                        backgroundColor: cssColor.main,
-                                    });
-                                    return mel.add(bel).bindSet((v: number) => {
-                                        bel.style({
-                                            width: `${Math.floor(v * 100)}%`,
-                                        });
-                                    });
-                                })();
-                                downloadEl.clear().add([pro]);
-                                const url = githubUrl(
-                                    `xushengfeng/eSearch-OCR/releases/download/4.0.0/${ocrModels[i].url}`,
-                                    "base",
-                                );
+                                const pro = createDownloadProgressBar();
+                                const statusEl = txt(t("下载中...")).style({
+                                    fontSize: "12px",
+                                    opacity: 0.78,
+                                });
+                                downloadEl.clear().add([pro, statusEl]);
                                 try {
-                                    fs.rmdirSync(p);
-                                } catch (error) {}
-                                fetch(url).then(async (res) => {
-                                    if (!res.ok) {
-                                        throw new Error(
-                                            `下载失败: ${res.status} ${res.statusText}`,
-                                        );
-                                    }
-                                    if (!res.body) {
-                                        throw new Error("响应体中无数据");
-                                    }
-
-                                    const contentLength =
-                                        res.headers.get("content-length");
-                                    const totalBytes = contentLength
-                                        ? Number.parseInt(contentLength, 10)
-                                        : undefined;
-
-                                    const reader = res.body.getReader();
-
-                                    let downloadedBytes = 0;
-
-                                    const chunks = [];
-
                                     try {
-                                        while (true) {
-                                            const { done, value } =
-                                                await reader.read();
-                                            if (done) break;
-                                            chunks.push(value);
-                                            downloadedBytes += value.length;
-                                            if (totalBytes) {
-                                                const percent =
-                                                    downloadedBytes /
-                                                    totalBytes;
-                                                console.log(percent);
+                                        fs.rmdirSync(p);
+                                    } catch (error) {}
+                                    const b =
+                                        await downloadGitHubAssetWithMirrors(
+                                            `xushengfeng/eSearch-OCR/releases/download/4.0.0/${ocrModels[i].url}`,
+                                            (percent) => {
                                                 pro.sv(percent);
-                                            }
-                                        }
-                                    } finally {
-                                    }
-
-                                    const buffer = await new Blob(
-                                        chunks,
-                                    ).arrayBuffer();
-                                    const b = Buffer.from(buffer);
+                                                statusEl.sv(
+                                                    `${t("下载中...")} ${Math.floor(percent * 100)}%`,
+                                                );
+                                            },
+                                        );
                                     await unzip(b, p);
-                                    console.log("end");
                                     downloadEl.clear();
                                     setValue(p);
-                                });
+                                } catch (error) {
+                                    const msg =
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error);
+                                    downloadEl.clear().add([
+                                        txt(`${t("下载失败")}：${msg}`).style({
+                                            color: "var(--danger)",
+                                            fontSize: "12.5px",
+                                        }),
+                                    ]);
+                                }
                             } else {
                                 setValue(p);
                             }
@@ -5755,6 +5868,130 @@ function isDarkMode() {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
+function buildDashboardHero() {
+    const clipKey = getSet("快捷键.截屏搜索")?.key || "Alt+C";
+    const quickKey = getSet("快捷键.快速截屏")?.key || "-";
+    const dingKey = getSet("快捷键.剪贴板贴图")?.key || "-";
+    const isDirectML = getSet("AI.运行后端") === "directml";
+
+    const quickItems: {
+        icon: IconType;
+        title: string;
+        desc: string;
+        badge?: string;
+        onClick: () => void;
+    }[] = [
+        {
+            icon: "rect_select",
+            title: t("区域截图"),
+            desc: t("智能窗口识别与原地 OCR/翻译"),
+            badge: clipKey,
+            onClick: () => renderSend("setting_quick_action", ["clip"]),
+        },
+        {
+            icon: "camera",
+            title: t("全屏快截"),
+            desc: t("一键抓取整屏并写入剪贴板"),
+            badge: quickKey,
+            onClick: () => renderSend("setting_quick_action", ["quick_clip"]),
+        },
+        {
+            icon: "ding",
+            title: t("剪贴板贴图"),
+            desc: t("将剪贴板图片置顶悬浮查看"),
+            badge: dingKey,
+            onClick: () =>
+                renderSend("setting_quick_action", ["ding_clipboard"]),
+        },
+        {
+            icon: "translate",
+            title: t("离线翻译模型"),
+            desc: t("管理内置及多语种离线模型"),
+            badge: t("免 API"),
+            onClick: openBergamotDialog,
+        },
+    ];
+
+    return view("y")
+        .class(heroBannerClass)
+        .add([
+            view("x", "wrap")
+                .style({
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                })
+                .add([
+                    view("y")
+                        .style({ gap: "4px" })
+                        .add([
+                            txt(noI18n(`${packageJson.name} 工作台`)).style({
+                                fontSize: "17px",
+                                fontWeight: 700,
+                                letterSpacing: "-0.01em",
+                            }),
+                            txt(
+                                t(
+                                    "1:1 高分屏原画直出 · 原地 OCR 选字与覆盖翻译 · 离线包内置",
+                                ),
+                            ).style({
+                                fontSize: "12.5px",
+                                color: cssColor.font.light,
+                            }),
+                        ]),
+                    view("x", "wrap")
+                        .style({ gap: "6px" })
+                        .add([
+                            txt(
+                                isDirectML
+                                    ? t("DirectML 显卡加速 OCR")
+                                    : t("CPU 本地 OCR"),
+                            ).class("pun-pill"),
+                            txt(t("离线 + 免费翻译")).class("pun-pill"),
+                        ]),
+                ]),
+            view()
+                .style({
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(156px, 1fr))",
+                    gap: "10px",
+                })
+                .add(
+                    quickItems.map((item) =>
+                        button([
+                            view("x")
+                                .style({
+                                    width: "100%",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                })
+                                .add([
+                                    view()
+                                        .class("q-icon")
+                                        .add(iconEl(item.icon)),
+                                    item.badge
+                                        ? ele("kbd")
+                                              .add(noI18n(item.badge))
+                                              .style({ fontSize: "11px" })
+                                        : "",
+                                ]),
+                            txt(item.title, true).style({
+                                fontSize: "13.5px",
+                                fontWeight: 600,
+                            }),
+                            txt(item.desc, true).style({
+                                fontSize: "11.5px",
+                                color: cssColor.font.light,
+                                lineHeight: "1.35",
+                            }),
+                        ])
+                            .class(quickGridCardClass)
+                            .on("click", item.onClick),
+                    ),
+                ),
+        ]);
+}
+
 async function showPage(page: (typeof main)[0] | undefined) {
     if (!page) {
         console.warn("Page not found");
@@ -5762,6 +5999,10 @@ async function showPage(page: (typeof main)[0] | undefined) {
     }
     mainView.clear();
     mainViewP.el.scrollTop = 0;
+    mainView.el.style.animation = "none";
+    void mainView.el.offsetWidth;
+    mainView.el.style.animation =
+        "punPageFadeIn 0.2s cubic-bezier(0.22, 1, 0.36, 1)";
     const header = view("y")
         .style({ gap: "4px", marginBottom: "18px" })
         .add([
@@ -5769,6 +6010,9 @@ async function showPage(page: (typeof main)[0] | undefined) {
             page.desc ? comment(page.desc) : "",
         ]);
     mainView.add(header);
+    if (page.isMemo) {
+        mainView.add(buildDashboardHero());
+    }
     if (page.settings && page.settings.length > 0) {
         const card = view("y").class(settingCardClass);
         for (const setting of page.settings) {
@@ -5798,11 +6042,20 @@ async function showPage(page: (typeof main)[0] | undefined) {
     if (page.isMemo) {
         const m = getSettingMem();
         if (m.length > 0) {
-            const card = view("y").class(settingCardClass);
-            for (const setting of m) {
-                card.add(renderSetting(setting));
-            }
-            mainView.add(card);
+            const section = view("y").class(settingSectionClass);
+            section.add([
+                ele("h2")
+                    .add(txt(t("最近调整的设置")))
+                    .style({ paddingInline: "4px" }),
+                (() => {
+                    const card = view("y").class(settingCardClass);
+                    for (const setting of m) {
+                        card.add(renderSetting(setting));
+                    }
+                    return card;
+                })(),
+            ]);
+            mainView.add(section);
         }
     }
 }
@@ -5846,20 +6099,28 @@ const updateLogClass = addClass(
 );
 
 function about() {
-    const el = view("y").style({ alignItems: "center", margin: "120px 0" });
+    const el = view("y").style({
+        alignItems: "center",
+        gap: "14px",
+        paddingBlock: "10px",
+        textAlign: "center",
+    });
     const logoEl = image(logo, noI18n("logo"))
         .style({
-            width: "200px",
-            transition: "scale 1s, --logo-blur 1s",
-            filter: "drop-shadow(var(--x) var(--y) 8px var(--logo-blur))",
+            width: "84px",
+            height: "84px",
+            borderRadius: "20px",
+            transition:
+                "transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), --logo-blur 0.4s",
+            filter: "drop-shadow(var(--x) var(--y) 10px var(--logo-blur))",
         })
         .class(
             addClass(
                 {},
                 {
                     "&:hover": {
-                        "--logo-blur": "#00f4",
-                        scale: 1.1,
+                        "--logo-blur": "#2563eb66",
+                        transform: "scale(1.06)",
                     },
                 },
             ),
@@ -5869,11 +6130,27 @@ function about() {
             const yy = (e.offsetY / el.el.offsetWidth - 0.5) * -2;
             el.style({ "--x": `${xx * 8}px`, "--y": `${yy * 8}px` });
         });
-    const nameEl = p(packageJson.name, true).style({ fontSize: "2rem" });
-    const version = button(noI18n(`v${packageJson.version} 测试版`))
+    const nameRow = view("x")
+        .style({ alignItems: "center", gap: "10px", justifyContent: "center" })
+        .add([
+            txt(noI18n(packageJson.name)).style({
+                fontSize: "22px",
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+            }),
+            txt(noI18n(`v${packageJson.version} 测试版`)).class("pun-pill"),
+        ]);
+    const version = button(t("检查更新"))
         .attr({ title: "点击检查更新" })
-        .class(Class.mono, Class.click)
+        .class(Class.click)
+        .style({
+            height: "30px",
+            fontSize: "12.5px",
+            borderRadius: "999px",
+            paddingInline: "14px",
+        })
         .on("click", () => {
+            version.el.textContent = t("检查中...");
             fetch(githubUrl("repos/xiaoxi303/PunPuin/releases", "api"), {
                 method: "GET",
                 redirect: "follow",
@@ -5886,7 +6163,7 @@ function about() {
                     return response.json();
                 })
                 .then((re) => {
-                    console.log(re);
+                    version.el.textContent = t("检查更新");
                     const l: {
                         html_url: string;
                         name: string;
@@ -5955,21 +6232,21 @@ function about() {
                         if (i === 0) {
                             tags.add(txt("最新版本"));
                         }
-                        const baseName = `eSearch-${r.name}-${process.platform}-${process.arch}`;
-                        const assets = r.assets.filter((i) =>
-                            i.name.startsWith(baseName),
+                        const assets = r.assets.filter(
+                            (i) =>
+                                i.name.includes("PunPun") ||
+                                i.name.endsWith(".exe"),
                         );
                         tags.add(
                             assets.map((i) =>
-                                button(
-                                    noI18n(
-                                        `${t("点击下载")} ${i.name.replace(baseName, "")}`,
-                                    ),
-                                ).on("click", () => {
-                                    shell.openExternal(
-                                        githubUrl(i.browser_download_url),
-                                    );
-                                }),
+                                button(noI18n(`${t("点击下载")} ${i.name}`)).on(
+                                    "click",
+                                    () => {
+                                        shell.openExternal(
+                                            githubUrl(i.browser_download_url),
+                                        );
+                                    },
+                                ),
                             ),
                         );
                         tags.add(
@@ -5981,6 +6258,7 @@ function about() {
                     }
                 })
                 .catch((error) => {
+                    version.el.textContent = t("检查更新");
                     console.error(error);
                     update.clear().add(
                         view("y")
@@ -5998,56 +6276,68 @@ function about() {
                 });
         });
     const update = view("y")
-        .style({ gap: "16px", width: "100%" })
+        .style({ gap: "16px", width: "100%", textAlign: "left" })
         .class(updateLogClass);
-    const desc = p(packageJson.description);
+    const desc = txt(packageJson.description).style({
+        fontSize: "13px",
+        color: cssColor.font.light,
+    });
 
-    const infoEl = view("y").style({ alignItems: "center" });
+    const chipLinkStyle = {
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "5px 12px",
+        borderRadius: "999px",
+        fontSize: "12.5px",
+        fontWeight: "500",
+        backgroundColor: "var(--surface-2)",
+        border: "1px solid var(--border-subtle)",
+    };
 
-    infoEl.add([
-        view().add([
-            "项目主页：",
-            " ",
-            a(packageJson.homepage).add(noI18n(packageJson.homepage)),
-        ]),
-        view()
-            .style({ fontSize: "12.5px", color: cssColor.font.light })
-            .add([
-                noI18n("（基于 "),
-                a("https://github.com/xushengfeng/eSearch").add(
-                    noI18n("xushengfeng/eSearch"),
-                ),
-                noI18n(" 开源项目二次开发）"),
-            ]),
-        view().add([
-            "支持该项目：",
-            " ",
-            a(packageJson.homepage).add("为项目点亮星标🌟"),
-        ]),
-        view().add([
-            a(renderSendSync("feedbackBug", [])).add("反馈问题"),
-            " ",
+    const actionLinks = view("x", "wrap")
+        .style({ gap: "8px", justifyContent: "center" })
+        .add([
+            a(packageJson.homepage)
+                .style(chipLinkStyle)
+                .add(noI18n("GitHub 主页")),
+            a(renderSendSync("feedbackBug", []))
+                .style(chipLinkStyle)
+                .add("反馈问题"),
             a(
                 renderSendSync("feedbackFeature", [
                     { title: "建议在……添加……功能/改进" },
                 ]),
-            ).add("提供建议"),
-        ]),
-        view().add([
-            "本软件遵循",
-            " ",
-            a("https://www.gnu.org/licenses/gpl-3.0.html").add(
-                noI18n(packageJson.license),
-            ),
-        ]),
-        view().add(
-            noI18n(
-                `Copyright © ${new Date().getFullYear()} ${packageJson.author.name}`,
-            ),
-        ),
-    ]);
+            )
+                .style(chipLinkStyle)
+                .add("提供建议"),
+            a("https://www.gnu.org/licenses/gpl-3.0.html")
+                .style(chipLinkStyle)
+                .add(noI18n(`${packageJson.license} 协议`)),
+            version,
+        ]);
 
-    return el.add([logoEl, nameEl, version, update, desc, infoEl]);
+    const footerNote = view("y")
+        .style({ gap: "4px", alignItems: "center", marginTop: "4px" })
+        .add([
+            view()
+                .style({ fontSize: "12px", color: cssColor.font.light })
+                .add([
+                    noI18n("（基于 "),
+                    a("https://github.com/xushengfeng/eSearch").add(
+                        noI18n("xushengfeng/eSearch"),
+                    ),
+                    noI18n(" 开源项目二次开发）"),
+                ]),
+            view()
+                .style({ fontSize: "11.5px", color: cssColor.font.llight })
+                .add(
+                    noI18n(
+                        `Copyright © ${new Date().getFullYear()} ${packageJson.author.name}`,
+                    ),
+                ),
+        ]);
+
+    return el.add([logoEl, nameRow, desc, actionLinks, update, footerNote]);
 }
 
 setTranslate((text) => t(text));
@@ -6124,12 +6414,12 @@ const sideBar = view("y")
     .style({
         padding: "16px 12px",
         flexShrink: 0,
-        width: "228px",
+        width: "236px",
         height: "100vh",
         overflowY: "auto",
         backgroundColor: "var(--surface)",
         borderRight: "1px solid var(--border-subtle)",
-        gap: "4px",
+        gap: "3px",
     })
     .class(
         addClass(
@@ -6142,12 +6432,16 @@ const sideBar = view("y")
         ),
     );
 
+const clipShortcutBadge = getSet("快捷键.截屏搜索")?.key || "Alt+C";
 const brandHeader = view("y")
     .style({
-        gap: "12px",
-        padding: "4px 4px 14px",
+        gap: "10px",
+        padding: "10px 8px 14px",
         marginBottom: "8px",
         borderBottom: "1px solid var(--border-subtle)",
+        borderRadius: "12px",
+        background:
+            "radial-gradient(circle at top left, color-mix(in srgb, var(--emphasis-color) 12%, transparent), transparent 72%)",
     })
     .add([
         view("x")
@@ -6158,41 +6452,86 @@ const brandHeader = view("y")
                         .href,
                     noI18n("logo"),
                 ).style({
-                    width: "32px",
-                    height: "32px",
-                    borderRadius: "8px",
+                    width: "34px",
+                    height: "34px",
+                    borderRadius: "9px",
+                    boxShadow: "0 2px 8px rgba(37, 99, 235, 0.22)",
                 }),
                 view("y")
-                    .style({ gap: "1px", minWidth: 0 })
+                    .style({ gap: "2px", minWidth: 0 })
                     .add([
-                        txt(noI18n(packageJson.name)).style({
-                            fontSize: "15px",
-                            fontWeight: 700,
-                            lineHeight: "1.2",
-                        }),
-                        txt(noI18n(`v${packageJson.version} 测试版`)).style({
-                            fontSize: "11.5px",
-                            color: cssColor.font.llight,
-                            fontFamily: "var(--monospace)",
-                        }),
+                        view("x")
+                            .style({ alignItems: "center", gap: "8px" })
+                            .add([
+                                txt(noI18n(packageJson.name)).style({
+                                    fontSize: "15.5px",
+                                    fontWeight: 700,
+                                    lineHeight: "1.2",
+                                }),
+                            ]),
+                        txt(noI18n(`v${packageJson.version} 测试版`))
+                            .class("pun-pill")
+                            .style({
+                                fontSize: "10.5px",
+                                padding: "1px 7px",
+                                width: "fit-content",
+                                fontFamily: "var(--monospace)",
+                            }),
                     ]),
             ]),
-        button([
-            view()
-                .style({
-                    width: "16px",
-                    height: "16px",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                })
-                .add(iconEl("rect_select")),
-            txt(t("立即截图"), true),
-        ])
-            .class(quickClipBtnClass)
-            .on("click", () => {
-                renderSend("setting_start_clip", []);
-            }),
+        view("x")
+            .style({ width: "100%" })
+            .add(
+                button([
+                    view("x")
+                        .style({ alignItems: "center", gap: "7px" })
+                        .add([
+                            view()
+                                .style({
+                                    width: "16px",
+                                    height: "16px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                })
+                                .add(iconEl("rect_select")),
+                            txt(t("立即截图"), true),
+                        ]),
+                    txt(noI18n(clipShortcutBadge)).style({
+                        fontSize: "10.5px",
+                        fontFamily: "var(--monospace)",
+                        padding: "1px 6px",
+                        borderRadius: "5px",
+                        backgroundColor: "rgba(255, 255, 255, 0.2)",
+                    }),
+                ])
+                    .class(quickClipBtnClass)
+                    .on("click", () => {
+                        renderSend("setting_quick_action", ["clip"]);
+                    }),
+            ),
+        view("x")
+            .style({ gap: "6px" })
+            .add([
+                button([iconEl("camera"), txt(t("全屏快截"), true)])
+                    .class(miniActionBtnClass)
+                    .attr({ title: "快速截取全屏并复制" })
+                    .on("click", () =>
+                        renderSend("setting_quick_action", ["quick_clip"]),
+                    ),
+                button([iconEl("ding"), txt(t("贴图"), true)])
+                    .class(miniActionBtnClass)
+                    .attr({ title: "将剪贴板内容贴图到屏幕" })
+                    .on("click", () =>
+                        renderSend("setting_quick_action", ["ding_clipboard"]),
+                    ),
+                button([iconEl("main"), txt(t("主窗"), true)])
+                    .class(miniActionBtnClass)
+                    .attr({ title: "打开文字识别与翻译主窗口" })
+                    .on("click", () =>
+                        renderSend("setting_quick_action", ["main_window"]),
+                    ),
+            ]),
     ]);
 sideBar.add(brandHeader);
 
@@ -6207,18 +6546,59 @@ const searchBar = view("x").style({
     backdropFilter: "blur(16px)",
     borderBottom: "1px solid var(--border-subtle)",
 });
-const searchI = input()
-    .attr({ placeholder: t("搜索设置") })
+const searchClearBtn = button("×").attr({ title: "清空搜索" }).style({
+    display: "none",
+    position: "absolute",
+    right: "66px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: "22px",
+    height: "22px",
+    padding: "0",
+    borderRadius: "999px",
+    border: "none",
+    outline: "none",
+    backgroundColor: "var(--surface-2)",
+    fontSize: "14px",
+    lineHeight: "1",
+});
+const searchWrap = view()
     .style({
+        position: "relative",
         width: "100%",
         maxWidth: "740px",
+        display: "flex",
+        alignItems: "center",
+    })
+    .addInto(searchBar);
+view()
+    .style({
+        position: "absolute",
+        left: "12px",
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: "16px",
+        height: "16px",
+        opacity: 0.55,
+        pointerEvents: "none",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+    })
+    .add(iconEl("search"))
+    .addInto(searchWrap);
+const searchI = input()
+    .attr({ placeholder: t("搜索设置项或快捷键...") })
+    .style({
+        width: "100%",
         height: "38px",
         borderRadius: "12px",
-        paddingInline: "14px",
+        paddingInline: "36px 96px",
         fontSize: "13.5px",
     })
-    .addInto(searchBar)
+    .addInto(searchWrap)
     .on("input", () => {
+        searchClearBtn.style({ display: searchI.gv ? "inline-flex" : "none" });
         if (!searchI.gv) {
             showPage(main.at(Number(sideBarG.get())));
             return;
@@ -6250,6 +6630,35 @@ const searchI = input()
             );
         else renderSettingList(l);
     });
+searchClearBtn.addInto(searchWrap).on("click", () => {
+    searchI.sv("");
+    searchClearBtn.style({ display: "none" });
+    showPage(main.at(Number(sideBarG.get())));
+});
+ele("kbd")
+    .add(noI18n("Ctrl+K"))
+    .style({
+        position: "absolute",
+        right: "10px",
+        top: "50%",
+        transform: "translateY(-50%)",
+        fontSize: "11px",
+        pointerEvents: "none",
+        opacity: 0.72,
+    })
+    .addInto(searchWrap);
+
+window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchI.el.focus();
+        searchI.el.select();
+    } else if (e.key === "Escape" && searchI.gv) {
+        searchI.sv("");
+        searchClearBtn.style({ display: "none" });
+        showPage(main.at(Number(sideBarG.get())));
+    }
+});
 const mainViewP = view().addInto().style({
     overflowY: "auto",
     height: "100vh",
@@ -6300,13 +6709,15 @@ function showContextMenu(e: MouseEvent) {
 }
 
 for (const [i, page] of main.entries()) {
+    const labelContent = view("x")
+        .style({ alignItems: "center", gap: "10px" })
+        .add([
+            page.icon ? iconEl(page.icon).class("nav-icon") : "",
+            txt(page.pageName, true),
+        ]);
     const sideEl = view()
         .class("nav-wrap")
-        .add(
-            sideBarG
-                .new(String(i), txt(page.pageName, true))
-                .class(sideNavItemClass),
-        );
+        .add(sideBarG.new(String(i), labelContent).class(sideNavItemClass));
     sideBar.add(sideEl);
 }
 sideBarG.set("0");

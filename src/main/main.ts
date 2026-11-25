@@ -46,7 +46,7 @@ import minimist from "minimist";
 import main from "xtranslator";
 import { githubMirrorList } from "../../lib/github_mirror";
 import type { RecordRect } from "../../lib/ipc";
-import { mainOn, mainOnReflect, mainSend } from "../../lib/ipc";
+import { mainHandle, mainOn, mainOnReflect, mainSend } from "../../lib/ipc";
 import Store from "../../lib/store/store";
 import time_format from "../../lib/time_format";
 import { lan, t } from "../../lib/translate/translate";
@@ -68,6 +68,11 @@ import type {
 import { initBergamot } from "./bergamot";
 import defaultSetting, { matchBestLan } from "./defaultSetting";
 import { initFreeTranslate } from "./freeTranslate";
+import {
+    fetchGitHubBytes,
+    fetchWithConnectTimeout,
+    setGithubBaseResolver,
+} from "./githubFetch";
 
 const runPath = join(resolve(__dirname, ""), "../../");
 const tmpDir = join(tmpdir(), "eSearch");
@@ -360,7 +365,7 @@ async function writeImageFileToClipboard(buffer: Buffer, type: string) {
     mkdirSync(clipboardDir, { recursive: true });
     const file = join(
         clipboardDir,
-        `eSearch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${imageExt[type] ?? "png"}`,
+        `PunPun-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${imageExt[type] ?? "png"}`,
     );
     await writeFileAsync(file, buffer);
     // 剪贴板只保留当前文件，避免缓存目录堆积
@@ -795,8 +800,20 @@ app.whenReady().then(() => {
 
     crashReporter.start({ uploadToServer: false });
 
+    setGithubBaseResolver((path) => githubUrl(path, "base"));
     initBergamot((path) => githubUrl(path, "base"));
     initFreeTranslate();
+
+    mainHandle("github_download_asset", async ([data], event) => {
+        const bytes = await fetchGitHubBytes(data.relPath, {
+            onProgress: (progress) => {
+                mainSend(event.sender, "github_download_progress", [
+                    { id: data.id, ...progress },
+                ]);
+            },
+        });
+        return new Uint8Array(bytes);
+    });
 
     fixSettingTree();
 
@@ -2126,6 +2143,23 @@ mainOn("setting_start_clip", () => {
     setTimeout(() => {
         showPhoto();
     }, 160);
+});
+mainOn("setting_quick_action", ([action]) => {
+    const hideSettingForClip = (fn: () => void) => {
+        if (settingWindow && !settingWindow.isDestroyed()) {
+            settingWindow.minimize();
+        }
+        setTimeout(fn, 160);
+    };
+    if (action === "clip") {
+        hideSettingForClip(() => showPhoto());
+    } else if (action === "quick_clip") {
+        hideSettingForClip(() => void quickClip());
+    } else if (action === "ding_clipboard") {
+        void dingFromClipBoard();
+    } else if (action === "main_window") {
+        void createMainWindow({ type: "text", content: "" });
+    }
 });
 mainOn("reloadMainFromSetting", () => {
     if (clipWindow && !clipWindow.isDestroyed() && !clipWindow.isVisible())
@@ -3680,8 +3714,14 @@ mainOn("githubUrl", ([p, t]) => githubUrl(p, t));
 function checkUpdate(s手动检查?: boolean) {
     const version = store.get("设置版本");
     const m = store.get("更新.模式");
-    fetch(githubUrl("repos/xiaoxi303/PunPuin/releases", "api"))
-        .then((v) => v.json())
+    fetchWithConnectTimeout(
+        githubUrl("repos/xiaoxi303/PunPuin/releases", "api"),
+        12_000,
+    )
+        .then((v) => {
+            if (!v.ok) throw new Error(`HTTP ${v.status}`);
+            return v.json();
+        })
         .then(
             (
                 re: {

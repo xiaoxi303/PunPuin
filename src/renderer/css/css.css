@@ -72,8 +72,11 @@ body .hover_b {
     transition: var(--transition);
     display: flex;
     flex: 1;
-    border-radius: var(--border-radius);
-    background: var(--bg);
+    border-radius: 14px;
+    border: 1px solid var(--border-subtle);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    padding: 10px 6px;
     cursor: text;
     font-size: 1em;
     line-height: 1.5em;
@@ -151,50 +154,64 @@ body .hover_b {
     text-align: center;
     max-height: 80vh;
     background-color: var(--bg);
+    padding: 4px;
 }
 #history_list > div {
-    margin: 0 0 16px 0;
-    border-radius: var(--border-radius);
+    margin: 0 0 12px 0;
+    border-radius: 12px;
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
     overflow: hidden;
-    background-color: var(--bg);
+    background-color: var(--surface);
     transition: var(--transition);
+}
+#history_list > div:hover {
+    border-color: var(--border-color);
+    box-shadow: var(--shadow);
 }
 .history_title {
-    height: 16px;
-    padding: 4px;
+    height: 28px;
+    padding: 4px 8px;
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    border-bottom: 1px solid var(--border-subtle);
 }
 .history_title > button {
-    height: 16px !important;
-    width: 16px !important;
+    height: 20px !important;
+    width: 20px !important;
     padding: 0;
     margin-left: 4px;
-    background-color: var(--hover-color);
-    font-size: 16px;
+    background-color: var(--surface-2);
+    font-size: 14px;
     transition: var(--transition);
-    border-radius: 50%;
+    border-radius: 999px;
 }
 .history_title > button > .icon {
-    width: 16px;
+    width: 14px;
 }
 .history_title > button:hover {
-    background-color: #f00;
+    background-color: rgba(239, 68, 68, 0.16);
 }
 .history_title > button:hover > .icon {
-    filter: invert(1);
+    filter: none;
 }
 .history_text {
-    padding: 8px;
+    padding: 10px 12px;
     text-align: start;
 }
 
 #edit_b {
     position: absolute;
     z-index: 3;
-    border-radius: var(--border-radius);
-    backdrop-filter: var(--blur);
-    box-shadow: var(--shadow);
+    border-radius: 12px;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--blur) saturate(170%);
+    box-shadow:
+        var(--shadow-lg),
+        inset 0 1px 0 var(--glass-highlight);
+    padding: 3px;
+    gap: 2px;
     font-size: 5px;
     overflow: hidden;
     cursor: pointer;
@@ -213,17 +230,22 @@ body .hover_b {
 #edit_b > div {
     height: 30px;
     width: 30px;
+    border-radius: 8px;
     overflow: hidden;
     font-size: 30px;
     position: relative;
     transition: var(--transition);
+    &:hover {
+        background-color: var(--bar-hover-color);
+    }
     &:active {
         transform: var(--button-active);
     }
 }
 
 #edit_b > div > .icon {
-    width: 30px;
+    width: 20px;
+    height: 20px;
 }
 #link_bar {
     width: 0;
@@ -236,10 +258,14 @@ body .hover_b {
 
 #find {
     position: absolute;
-    background-color: var(--bg);
+    background-color: var(--bar-bg);
+    backdrop-filter: var(--blur) saturate(170%);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
     transition: var(--transition);
     transform: translateY(-120%);
-    padding: var(--o-padding);
+    padding: 8px 10px;
 }
 .find_h {
     background-color: var(--hover-color);
@@ -318,15 +344,19 @@ select {
     justify-content: space-between;
     transition: var(--transition);
     position: relative;
-    border-radius: var(--border-radius);
+    border-radius: 10px;
+    padding-inline: 4px;
+    border: 1px solid transparent;
     overflow: hidden;
 }
 .b_tab:hover {
     background-color: var(--hover-color);
-    box-shadow: var(--shadow);
+    border-color: var(--border-subtle);
 }
 .tab_focus {
-    background-color: var(--hover-color);
+    background-color: var(--surface);
+    border-color: var(--border-subtle);
+    box-shadow: var(--shadow-sm);
 }
 .tab_small {
     max-width: 32px !important;

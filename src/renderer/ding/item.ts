@@ -82,10 +82,14 @@ export type DingItem = {
 };
 
 const dingPhotoClass = addClass(
-    {},
+    {
+        borderRadius: "8px",
+        transition: "box-shadow var(--transition)",
+    },
     {
         "&:hover": {
-            boxShadow: "var(--shadow)",
+            boxShadow:
+                "var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--emphasis-color) 45%, transparent)",
         },
         "&:focus": {
             outline: "none",
@@ -93,7 +97,13 @@ const dingPhotoClass = addClass(
     },
 );
 
-const dingPhotoHightClass = addClass({ boxShadow: "var(--shadow)" }, {});
+const dingPhotoHightClass = addClass(
+    {
+        boxShadow:
+            "var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--emphasis-color) 32%, transparent)",
+    },
+    {},
+);
 
 const toolBarButtonsClass = addClass(
     {},

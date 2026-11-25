@@ -106,15 +106,15 @@ body input {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 2px;
+    gap: 3px;
     width: max-content;
     height: auto;
-    padding: 4px 5px;
+    padding: 5px 6px;
     position: fixed;
     z-index: 99;
     left: 10px;
     top: 100px;
-    border-radius: 12px;
+    border-radius: 13px;
     overflow: visible;
     transition:
         opacity 0.18s ease,
@@ -169,15 +169,17 @@ body input {
 /* 主操作高亮：复制/完成 */
 #tool_copy {
     cursor: pointer !important;
-    background-color: var(--emphasis-color) !important;
-    box-shadow: 0 2px 8px
-        color-mix(in srgb, var(--emphasis-color) 40%, transparent);
+    background: linear-gradient(
+        135deg,
+        var(--emphasis-color),
+        color-mix(in srgb, var(--emphasis-color) 76%, #06b6d4)
+    ) !important;
+    box-shadow: 0 2px 10px
+        color-mix(in srgb, var(--emphasis-color) 42%, transparent);
     &:hover {
-        background-color: color-mix(
-            in srgb,
-            var(--emphasis-color) 88%,
-            #000
-        ) !important;
+        filter: brightness(1.08);
+        box-shadow: 0 4px 14px
+            color-mix(in srgb, var(--emphasis-color) 52%, transparent);
     }
     & > .icon {
         filter: brightness(0) invert(1) !important;
@@ -186,7 +188,8 @@ body input {
 
 /* 取消/关闭按钮柔和警示 */
 #tool_close:hover {
-    background-color: rgba(239, 68, 68, 0.16) !important;
+    background-color: rgba(239, 68, 68, 0.18) !important;
+    color: var(--danger);
 }
 
 /* 按钮右下角下拉小指示点 */
@@ -286,10 +289,10 @@ body input {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 2px;
+    gap: 3px;
     width: max-content;
-    padding: 4px 5px;
-    border-radius: 12px;
+    padding: 5px 6px;
+    border-radius: 13px;
 }
 #draw_main > div,
 .draw_items > div {
@@ -512,12 +515,14 @@ body input {
     }
 }
 #clip_rect_border > .clip_handle {
-    width: 8px;
-    height: 8px;
+    width: 9px;
+    height: 9px;
     border-radius: 999px;
     background: #ffffff;
     border: 2px solid var(--clip-border-color);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.55),
+        0 1px 4px rgba(0, 0, 0, 0.38);
     transform: translate(-50%, -50%);
     transition: transform 0.15s ease;
 }
@@ -563,11 +568,11 @@ body input {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     position: fixed;
     z-index: 100;
-    padding: 6px;
-    border-radius: 12px;
+    padding: 7px;
+    border-radius: 14px;
     overflow: hidden;
     pointer-events: none;
     left: 0;
