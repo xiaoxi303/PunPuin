@@ -107,12 +107,14 @@ const BERGAMOT_RECORDS_URL =
     "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-wasm-v2/records";
 const BERGAMOT_ATTACHMENTS_URL =
     "https://firefox-settings-attachments.cdn.mozilla.net/";
-const bergamotMirrors = [
-    "https://ghfast.top/https://github.com/",
-    "https://gh-proxy.com/https://github.com/",
-    "https://ghfile.geekertao.top/https://github.com/",
-    "https://github.com/",
-];
+const bergamotMirrors = process.env.GITHUB_ACTIONS
+    ? ["https://github.com/"]
+    : [
+          "https://ghfast.top/https://github.com/",
+          "https://gh-proxy.com/https://github.com/",
+          "https://ghfile.geekertao.top/https://github.com/",
+          "https://github.com/",
+      ];
 
 function sha256(bytes) {
     return createHash("sha256").update(bytes).digest("hex");
@@ -278,7 +280,10 @@ function hasValidBundledBergamotModels() {
 
 async function downloadBergamotModels() {
     if (hasValidBundledBergamotModels()) {
-        console.log("已复用本地内置离线翻译模型:", BUNDLED_BERGAMOT_PAIRS.join(", "));
+        console.log(
+            "已复用本地内置离线翻译模型:",
+            BUNDLED_BERGAMOT_PAIRS.join(", "),
+        );
         return;
     }
     const releasePath = `${BERGAMOT_REPO}/releases/download/${BERGAMOT_RELEASE}`;
@@ -448,9 +453,13 @@ const build = {
         buildResources: "build",
     },
     icon: "./assets/logo",
-    electronDownload: {
-        mirror: "https://npmmirror.com/mirrors/electron/",
-    },
+    ...(process.env.GITHUB_ACTIONS
+        ? {}
+        : {
+              electronDownload: {
+                  mirror: "https://npmmirror.com/mirrors/electron/",
+              },
+          }),
     npmRebuild: false,
     electronFuses: {
         runAsNode: false,
@@ -503,14 +512,23 @@ const build = {
         ],
     },
     mac: {
+        icon: "./assets/logo/icon.icns",
+        hardenedRuntime: false,
+        gatekeeperAssess: false,
         files: [
             "!lib/gtk-open-with",
             "!lib/kde-open-with",
             "!assets/logo/1024x1024.png",
             "!assets/logo/512x512.png",
             "!assets/logo/icon.ico",
+            "!assets/logo/bw/gen_logo.ts",
+            "!assets/icns.src",
+            "!assets/icon.sh",
+            "!assets/e-search.desktop",
             "!node_modules/onnxruntime-node/bin/napi-v6/win32",
             "!node_modules/onnxruntime-node/bin/napi-v6/linux",
+            "!node_modules/**/*.d.ts",
+            "!node_modules/**/*.map",
         ],
         target: [
             {
@@ -554,10 +572,16 @@ const build = {
         ],
     },
     portable: {
-        artifactName: "PunPun-v0.2.0-测试版-免安装.exe",
+        artifactName:
+            arch === "x64"
+                ? "PunPun-v0.2.0-测试版-免安装.exe"
+                : `PunPun-v0.2.0-测试版-win-${arch}-免安装.exe`,
     },
     nsis: {
-        artifactName: "PunPun-v0.2.0-测试版-免安装.exe",
+        artifactName:
+            arch === "x64"
+                ? "PunPun-v0.2.0-测试版-免安装.exe"
+                : `PunPun-v0.2.0-测试版-win-${arch}-免安装.exe`,
         script: "./script/portable-fast.nsi",
         oneClick: true,
         perMachine: false,
@@ -588,7 +612,17 @@ for (const i of otherPlatform) {
 files?.push(`!node_modules/uiohook-napi/prebuilds/${platform}-${archFilter}`);
 
 if (arch !== process.arch) {
-    execSync("pnpm install --force"); // 安装node-screenshots
+    const hasTargetScreenshots = fs
+        .readdirSync(path.join(__dirname, "node_modules"))
+        .some((name) =>
+            name.startsWith(`node-screenshots-${platform}-${arch}`),
+        );
+    if (!hasTargetScreenshots) {
+        execSync("pnpm install --force", {
+            stdio: "inherit",
+            env: { ...process.env, npm_config_arch: arch },
+        }); // 安装node-screenshots
+    }
 }
 
 // 移除 node-screenshots其他平台架构

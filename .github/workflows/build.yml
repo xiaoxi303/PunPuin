@@ -1,51 +1,122 @@
-name: Build/release
+name: Build Windows & macOS
 
 on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 要打包的平台
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - macos
+      publish_release:
+        description: 是否同时发布为 GitHub Release
+        type: boolean
+        default: false
   push:
     tags:
       - "*"
 
+permissions:
+  contents: write
+
 jobs:
-  release:
+  build:
+    name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
 
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-        arch: [x64, arm64]
-      max-parallel: 3
+        include:
+          - key: windows
+            label: Windows x64 (.exe)
+            os: windows-latest
+            arch: x64
+            native_arch: x64
+            artifact_name: PunPun-windows-x64
+          - key: macos
+            label: macOS Apple Silicon (arm64 .dmg/.zip)
+            os: macos-latest
+            arch: arm64
+            native_arch: arm64
+            artifact_name: PunPun-macos-arm64
+          - key: macos
+            label: macOS Intel (x64 .dmg/.zip)
+            os: macos-latest
+            arch: x64
+            native_arch: arm64
+            artifact_name: PunPun-macos-x64
+
+    if: >
+      github.event_name != 'workflow_dispatch' ||
+      inputs.targets == 'all' ||
+      inputs.targets == matrix.key
 
     steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v1
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Install Node.js, NPM and Yarn
-        uses: actions/setup-node@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Install Linux Lib
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install libx11-dev libxext-dev libxtst-dev libxrender-dev libxmu-dev libxmuu-dev rpm
+      - name: Install pnpm
+        run: npm install -g pnpm@10.17.0
 
-      - name: ${{ matrix.os }} ${{ matrix.arch }} build
+      - name: Install dependencies (native)
+        if: matrix.arch == matrix.native_arch
+        run: pnpm install --frozen-lockfile
+
+      - name: Install dependencies (cross-arch)
+        if: matrix.arch != matrix.native_arch
+        run: pnpm install --force --frozen-lockfile
+
+      - name: Build ${{ matrix.label }}
         env:
-          M_ARCH: ${{matrix.arch}}
+          M_ARCH: ${{ matrix.arch }}
+          npm_config_arch: ${{ matrix.arch }}
           USE_HARD_LINKS: false
-        run: |
-          npm install -g pnpm@10.17.0
-          pnpm install
-          pnpm run dist
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: pnpm run dist
 
-      - name: release
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            build/*.exe
+            build/*.dmg
+            build/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: >
+      always() &&
+      needs.build.result == 'success' &&
+      (startsWith(github.ref, 'refs/tags/') || inputs.publish_release == true)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "build/*"
-          draft: false
+          files: dist-artifacts/*
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('punpun-build-{0}', github.run_number) }}
           prerelease: true
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
