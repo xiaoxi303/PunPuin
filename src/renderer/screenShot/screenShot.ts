@@ -17,7 +17,10 @@ type WindowData = {
     appName: string;
     title: string;
     z: number;
+    order: number;
     minimized: boolean;
+    maximized: boolean;
+    focused: boolean;
     displayId: number | null;
 };
 
@@ -116,14 +119,14 @@ export function getWindowInfos(
             return [];
         }
     }
-    return list.map((win) => {
+    return list.map((win, index) => {
         const rect = {
             x: win.x(),
             y: win.y(),
             w: win.width(),
             h: win.height(),
         };
-        let dipRect = rect;
+        let dipRect = { ...rect };
         let displayId: number | null = null;
         if (displays?.length) {
             try {
@@ -140,9 +143,53 @@ export function getWindowInfos(
                     displayId = display.id;
                 }
             } catch {
-                dipRect = rect;
+                // 跨显示器或无法获取 monitor 时，按 scaleFactor 匹配最佳显示器
+                let bestDisplay = displays[0];
+                let bestInter = -1;
+                for (const d of displays) {
+                    const f =
+                        process.platform === "darwin" ? 1 : d.scaleFactor || 1;
+                    const cx = rect.x / f;
+                    const cy = rect.y / f;
+                    const cw = rect.w / f;
+                    const ch = rect.h / f;
+                    const iw =
+                        Math.min(cx + cw, d.bounds.x + d.bounds.width) -
+                        Math.max(cx, d.bounds.x);
+                    const ih =
+                        Math.min(cy + ch, d.bounds.y + d.bounds.height) -
+                        Math.max(cy, d.bounds.y);
+                    const inter = iw > 0 && ih > 0 ? iw * ih : 0;
+                    if (inter > bestInter) {
+                        bestInter = inter;
+                        bestDisplay = d;
+                    }
+                }
+                const fallbackScale =
+                    process.platform === "darwin"
+                        ? 1
+                        : bestDisplay.scaleFactor || 1;
+                dipRect = {
+                    x: rect.x / fallbackScale,
+                    y: rect.y / fallbackScale,
+                    w: rect.w / fallbackScale,
+                    h: rect.h / fallbackScale,
+                };
+                displayId = bestInter > 0 ? bestDisplay.id : null;
             }
         }
+        let minimized = false;
+        let maximized = false;
+        let focused = false;
+        try {
+            minimized = win.isMinimized();
+        } catch {}
+        try {
+            maximized = win.isMaximized();
+        } catch {}
+        try {
+            focused = win.isFocused();
+        } catch {}
         return {
             rect,
             dipRect,
@@ -151,7 +198,10 @@ export function getWindowInfos(
             appName: win.appName(),
             title: win.title(),
             z: win.z(),
-            minimized: win.isMinimized(),
+            order: index,
+            minimized,
+            maximized,
+            focused,
             displayId,
         };
     });

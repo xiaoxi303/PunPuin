@@ -5,12 +5,14 @@ type EdgeWorkerMessage = {
     buffer: ArrayBuffer;
     width: number;
     height: number;
+    scale: number;
     lowThreshold: number;
     highThreshold: number;
 };
 
 type EdgeWorkerResult = {
     id: number;
+    scale: number;
     borders: Border[];
 };
 
@@ -20,11 +22,12 @@ const ctx = self as unknown as {
 };
 
 ctx.onmessage = (e) => {
-    const { id, buffer, width, height, lowThreshold, highThreshold } = e.data;
+    const { id, buffer, width, height, scale, lowThreshold, highThreshold } =
+        e.data;
     const borders = detectBorders(new Uint8Array(buffer), width, height, {
         lowThreshold,
         highThreshold,
-        minArea: 3,
+        minArea: 16,
     });
-    ctx.postMessage({ id, borders });
+    ctx.postMessage({ id, scale, borders });
 };

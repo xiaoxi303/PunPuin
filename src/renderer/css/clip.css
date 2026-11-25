@@ -443,46 +443,28 @@ body input {
     position: absolute;
     pointer-events: none;
 }
-
-/* 选区平滑动画（Snow Shot / PixPin 风格弹性过渡） */
-#clip_mask.clip-anim > div {
-    transition:
-        left 0.17s cubic-bezier(0.22, 1, 0.36, 1),
-        top 0.17s cubic-bezier(0.22, 1, 0.36, 1),
-        width 0.17s cubic-bezier(0.22, 1, 0.36, 1),
-        height 0.17s cubic-bezier(0.22, 1, 0.36, 1);
+#clip_mask > div {
+    contain: strict;
 }
 
-/* 唯一智能自动识别悬停高亮框 */
+/* 唯一智能自动识别悬停高亮框（由统一 rAF 帧插值 + translate3d 驱动，零布局重排卡顿） */
 #clip_hover_box {
+    left: 0;
+    top: 0;
     box-sizing: border-box;
     border: 2px solid var(--clip-border-color);
-    border-radius: 4px;
+    border-radius: 3px;
     background: transparent;
     box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.7),
-        0 0 18px color-mix(in srgb, var(--clip-border-color) 42%, transparent);
+        0 0 0 1px rgba(255, 255, 255, 0.78),
+        0 4px 14px rgba(0, 0, 0, 0.22);
     opacity: 0;
-    transform: scale(0.985);
-    will-change: left, top, width, height, opacity, transform;
+    transform: translate3d(0, 0, 0);
+    transition: opacity 0.1s ease-out;
+    will-change: transform, width, height, opacity;
 }
 #clip_hover_box.clip-hover-visible {
     opacity: 1;
-    transform: scale(1);
-}
-#clip_line.clip-anim #clip_hover_box {
-    transition:
-        left 0.16s cubic-bezier(0.22, 1, 0.36, 1),
-        top 0.16s cubic-bezier(0.22, 1, 0.36, 1),
-        width 0.16s cubic-bezier(0.22, 1, 0.36, 1),
-        height 0.16s cubic-bezier(0.22, 1, 0.36, 1),
-        opacity 0.14s ease,
-        transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
-}
-#clip_line.clip-anim #clip_hover_box.clip-hover-snap {
-    transition:
-        opacity 0.14s ease,
-        transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
 }
 #clip_hover_badge {
     position: absolute;
@@ -491,11 +473,13 @@ body input {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     padding: 3px 9px;
     border-radius: 7px;
-    background: rgba(15, 23, 42, 0.84);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.16);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
     color: #f8fafc;
     font-family: var(--monospace);

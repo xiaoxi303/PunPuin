@@ -344,8 +344,13 @@ function setSetting() {
     });
 }
 
+let currentScreenImageData: ImageData | null = null;
+let edgeInitTimer = 0;
+
 function toCanvas(canvas: HTMLCanvasElement, img: ImageData) {
-    canvas.getContext("2d")!.putImageData(img, 0, 0);
+    canvas
+        .getContext("2d", { willReadFrequently: true })!
+        .putImageData(img, 0, 0);
 }
 
 async function setScreen(i: (typeof allScreens)[0]) {
@@ -364,6 +369,7 @@ async function setScreen(i: (typeof allScreens)[0]) {
     }
     const img = _img;
     if (!img) return;
+    currentScreenImageData = img;
     const w = img.width;
     const h = img.height;
     mainCanvas.width = w;
@@ -373,7 +379,9 @@ async function setScreen(i: (typeof allScreens)[0]) {
     setClipSize(w, h);
     toCanvas(mainCanvas, img);
     syncMainCanvasLayout();
+    nowScreenId = i.id;
     resetImageEdge();
+    getWin();
     finalRect = [0, 0, mainCanvas.width, mainCanvas.height];
     if (记忆框选)
         if (记忆框选值?.[i.id]?.[2]) {
@@ -382,8 +390,9 @@ async function setScreen(i: (typeof allScreens)[0]) {
             finalRectFix();
         } // 记忆框选边不为0时
     drawClipRect();
-    nowScreenId = i.id;
-    if (store.get("框选.自动框选.图像识别")) setTimeout(ensureImageEdge, 0);
+    if (store.get("框选.自动框选.图像识别")) {
+        edgeInitTimer = window.setTimeout(ensureImageEdge, 36);
+    }
 
     if (w < window.innerWidth || h < window.innerHeight)
         document.body.classList.add("editor_bg");
@@ -596,25 +605,299 @@ function clearImageEdge() {
 
 /** 切换屏幕时作废进行中的识别 */
 function resetImageEdge() {
+    clearTimeout(edgeInitTimer);
+    edgeInitTimer = 0;
     edgeRequestId++;
     edgeState = "idle";
     clearImageEdge();
     setEdge([]);
 }
 
+function edgeContrastAtVertical(
+    data: Uint8ClampedArray,
+    stride: number,
+    width: number,
+    x: number,
+    yStart: number,
+    yEnd: number,
+): number {
+    if (x <= 0 || x >= width) return 0;
+    const steps = 14;
+    const span = Math.max(1, yEnd - yStart);
+    let sum = 0;
+    let count = 0;
+    for (let s = 0; s <= steps; s++) {
+        const y = Math.round(yStart + (span * s) / steps);
+        const iL = y * stride + (x - 1) * 4;
+        const iR = y * stride + x * 4;
+        const diff =
+            Math.abs(data[iL] - data[iR]) +
+            Math.abs(data[iL + 1] - data[iR + 1]) +
+            Math.abs(data[iL + 2] - data[iR + 2]);
+        sum += diff;
+        count++;
+    }
+    return count > 0 ? sum / count : 0;
+}
+
+function edgeContrastAtHorizontal(
+    data: Uint8ClampedArray,
+    stride: number,
+    height: number,
+    y: number,
+    xStart: number,
+    xEnd: number,
+): number {
+    if (y <= 0 || y >= height) return 0;
+    const steps = 14;
+    const span = Math.max(1, xEnd - xStart);
+    let sum = 0;
+    let count = 0;
+    for (let s = 0; s <= steps; s++) {
+        const x = Math.round(xStart + (span * s) / steps);
+        const iT = (y - 1) * stride + x * 4;
+        const iB = y * stride + x * 4;
+        const diff =
+            Math.abs(data[iT] - data[iB]) +
+            Math.abs(data[iT + 1] - data[iB + 1]) +
+            Math.abs(data[iT + 2] - data[iB + 2]);
+        sum += diff;
+        count++;
+    }
+    return count > 0 ? sum / count : 0;
+}
+
+/** 降采样检测出的边缘回映射到原图时，在 ±radius 内对齐真实高对比像素边界 */
+function snapRectToImageGradient(
+    rx: number,
+    ry: number,
+    rw: number,
+    rh: number,
+    radius: number,
+    img: ImageData | null,
+): { x: number; y: number; w: number; h: number } {
+    if (!img || radius <= 0 || rw < 16 || rh < 16) {
+        return { x: rx, y: ry, w: rw, h: rh };
+    }
+    const { data, width, height } = img;
+    const stride = width * 4;
+    let x0 = Math.max(0, Math.min(width - 1, rx));
+    let y0 = Math.max(0, Math.min(height - 1, ry));
+    let x1 = Math.max(x0 + 1, Math.min(width, rx + rw));
+    let y1 = Math.max(y0 + 1, Math.min(height, ry + rh));
+
+    const yPad = Math.min(8, Math.floor((y1 - y0) * 0.15));
+    const xPad = Math.min(8, Math.floor((x1 - x0) * 0.15));
+    const sy0 = Math.max(0, y0 + yPad);
+    const sy1 = Math.min(height - 1, y1 - yPad);
+    const sx0 = Math.max(0, x0 + xPad);
+    const sx1 = Math.min(width - 1, x1 - xPad);
+
+    let bestL = x0;
+    let bestLScore = -1;
+    for (let d = -radius; d <= radius; d++) {
+        const c = edgeContrastAtVertical(data, stride, width, x0 + d, sy0, sy1);
+        if (c > bestLScore) {
+            bestLScore = c;
+            bestL = x0 + d;
+        }
+    }
+    if (bestLScore >= 18) x0 = bestL;
+
+    let bestR = x1;
+    let bestRScore = -1;
+    for (let d = -radius; d <= radius; d++) {
+        const c = edgeContrastAtVertical(data, stride, width, x1 + d, sy0, sy1);
+        if (c > bestRScore) {
+            bestRScore = c;
+            bestR = x1 + d;
+        }
+    }
+    if (bestRScore >= 18 && bestR > x0 + 8) x1 = bestR;
+
+    let bestT = y0;
+    let bestTScore = -1;
+    for (let d = -radius; d <= radius; d++) {
+        const c = edgeContrastAtHorizontal(
+            data,
+            stride,
+            height,
+            y0 + d,
+            sx0,
+            sx1,
+        );
+        if (c > bestTScore) {
+            bestTScore = c;
+            bestT = y0 + d;
+        }
+    }
+    if (bestTScore >= 18) y0 = bestT;
+
+    let bestB = y1;
+    let bestBScore = -1;
+    for (let d = -radius; d <= radius; d++) {
+        const c = edgeContrastAtHorizontal(
+            data,
+            stride,
+            height,
+            y1 + d,
+            sx0,
+            sx1,
+        );
+        if (c > bestBScore) {
+            bestBScore = c;
+            bestB = y1 + d;
+        }
+    }
+    if (bestBScore >= 18 && bestB > y0 + 8) y1 = bestB;
+
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** 消除 Windows 10/11 非最大化窗口周围约 7~8 DIP 的透明阴影边框 */
+function refineWin32WindowBounds(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    scale: number,
+    img: ImageData | null,
+): { x: number; y: number; w: number; h: number } {
+    if (process.platform !== "win32" || !img || w < 80 || h < 60) {
+        return { x, y, w, h };
+    }
+    const { data, width, height } = img;
+    if (w >= width * 0.98 && h >= height * 0.98) {
+        return { x, y, w, h };
+    }
+    const stride = width * 4;
+    const maxSideInset = Math.min(18, Math.max(4, Math.round(9 * scale)));
+    const maxTopInset = Math.min(6, Math.max(1, Math.round(2 * scale)));
+
+    let x0 = Math.max(0, x);
+    let y0 = Math.max(0, y);
+    let x1 = Math.min(width, x + w);
+    let y1 = Math.min(height, y + h);
+
+    const sy0 = Math.max(0, Math.round(y0 + (y1 - y0) * 0.15));
+    const sy1 = Math.min(height - 1, Math.round(y1 - (y1 - y0) * 0.15));
+    const sx0 = Math.max(0, Math.round(x0 + (x1 - x0) * 0.15));
+    const sx1 = Math.min(width - 1, Math.round(x1 - (x1 - x0) * 0.15));
+
+    if (x > -maxSideInset && x0 < width - maxSideInset) {
+        let bestX = x0;
+        let bestScore = 20;
+        for (let inset = 1; inset <= maxSideInset; inset++) {
+            const c = edgeContrastAtVertical(
+                data,
+                stride,
+                width,
+                x0 + inset,
+                sy0,
+                sy1,
+            );
+            if (c > bestScore) {
+                bestScore = c;
+                bestX = x0 + inset;
+            }
+        }
+        x0 = bestX;
+    }
+
+    if (x + w < width + maxSideInset && x1 > maxSideInset) {
+        let bestX = x1;
+        let bestScore = 20;
+        for (let inset = 1; inset <= maxSideInset; inset++) {
+            const c = edgeContrastAtVertical(
+                data,
+                stride,
+                width,
+                x1 - inset,
+                sy0,
+                sy1,
+            );
+            if (c > bestScore) {
+                bestScore = c;
+                bestX = x1 - inset;
+            }
+        }
+        if (bestX > x0 + 40) x1 = bestX;
+    }
+
+    if (y + h < height + maxSideInset && y1 > maxSideInset) {
+        let bestY = y1;
+        let bestScore = 20;
+        for (let inset = 1; inset <= maxSideInset; inset++) {
+            const c = edgeContrastAtHorizontal(
+                data,
+                stride,
+                height,
+                y1 - inset,
+                sx0,
+                sx1,
+            );
+            if (c > bestScore) {
+                bestScore = c;
+                bestY = y1 - inset;
+            }
+        }
+        if (bestY > y0 + 40) y1 = bestY;
+    }
+
+    if (y >= 0 && y0 < height - maxTopInset) {
+        let bestY = y0;
+        let bestScore = 24;
+        for (let inset = 0; inset <= maxTopInset; inset++) {
+            const c = edgeContrastAtHorizontal(
+                data,
+                stride,
+                height,
+                y0 + inset,
+                sx0,
+                sx1,
+            );
+            if (c > bestScore) {
+                bestScore = c;
+                bestY = y0 + inset;
+            }
+        }
+        if (bestY < y1 - 40) y0 = bestY;
+    }
+
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
 function getEdgeWorker() {
     if (edgeWorker) return edgeWorker;
     const worker = new EdgeWorker();
-    worker.onmessage = (e: MessageEvent<{ id: number; borders: Border[] }>) => {
-        const { id, borders } = e.data;
+    worker.onmessage = (
+        e: MessageEvent<{ id: number; scale: number; borders: Border[] }>,
+    ) => {
+        const { id, scale, borders } = e.data;
         if (id !== edgeRequestId) return;
         edgeState = "done";
+        const minSize = Math.max(16, Math.round(18 * (ratio || 1)));
+        const snapR = scale > 1 ? scale : 0;
         for (const r of borders) {
+            const rawX = r.x * scale;
+            const rawY = r.y * scale;
+            const rawW = r.w * scale;
+            const rawH = r.h * scale;
+            if (rawW < minSize || rawH < minSize) continue;
+            const snapped = snapRectToImageGradient(
+                rawX,
+                rawY,
+                rawW,
+                rawH,
+                snapR,
+                currentScreenImageData,
+            );
+            if (snapped.w < minSize || snapped.h < minSize) continue;
             edgeRect.push({
-                x: r.x,
-                y: r.y,
-                width: r.w,
-                height: r.h,
+                x: snapped.x,
+                y: snapped.y,
+                width: snapped.w,
+                height: snapped.h,
                 type: "image",
             });
         }
@@ -632,45 +915,163 @@ function getEdgeWorker() {
     return worker;
 }
 
-/** 每个屏幕只识别一次，按 S 时若未识别过则补上 */
+/** 每个屏幕只识别一次，直接读取内存 ImageData 并对高分屏 2x 降采样加速，零 GPU 回读卡顿 */
 function ensureImageEdge() {
     if (edgeState !== "idle") return;
-    const canvas = mainCanvas;
-    const width = canvas.width;
-    const height = canvas.height;
-    const data = canvas.getContext("2d")?.getImageData(0, 0, width, height);
-    if (!data) return;
+    const srcImg =
+        currentScreenImageData ??
+        mainCanvas
+            .getContext("2d", { willReadFrequently: true })
+            ?.getImageData(0, 0, mainCanvas.width, mainCanvas.height) ??
+        null;
+    if (!srcImg || srcImg.width <= 0 || srcImg.height <= 0) return;
+    const srcW = srcImg.width;
+    const srcH = srcImg.height;
+    const scale = srcW * srcH > 2_200_000 ? 2 : 1;
+    const dstW = Math.floor(srcW / scale);
+    const dstH = Math.floor(srcH / scale);
+    if (dstW < 8 || dstH < 8) return;
+
+    const srcBuf = srcImg.data;
+    const out = new Uint8Array(dstW * dstH * 4);
+    if (scale === 1) {
+        out.set(srcBuf);
+    } else {
+        const srcStride = srcW * 4;
+        let dstIdx = 0;
+        for (let y = 0; y < dstH; y++) {
+            const rowOffset = y * 2 * srcStride;
+            for (let x = 0; x < dstW; x++) {
+                const sIdx = rowOffset + x * 8;
+                out[dstIdx] = srcBuf[sIdx];
+                out[dstIdx + 1] = srcBuf[sIdx + 1];
+                out[dstIdx + 2] = srcBuf[sIdx + 2];
+                out[dstIdx + 3] = srcBuf[sIdx + 3];
+                dstIdx += 4;
+            }
+        }
+    }
+
     edgeState = "running";
     const id = ++edgeRequestId;
     getEdgeWorker().postMessage(
         {
             id,
-            buffer: data.data.buffer,
-            width,
-            height,
+            buffer: out.buffer,
+            width: dstW,
+            height: dstH,
+            scale,
             lowThreshold: store.get("框选.自动框选.最小阈值"),
             highThreshold: store.get("框选.自动框选.最大阈值"),
         },
-        [data.data.buffer],
+        [out.buffer],
     );
 }
+
+const ignoredShellTitles = new Set([
+    "program manager",
+    "windows input experience",
+    "microsoft text input application",
+    "systemtray_main",
+    "nvidia geforce overlay",
+]);
+
+const ignoredShellApps = new Set([
+    "textinputhost.exe",
+    "textinputhost",
+    "nvidia share.exe",
+    "nvidia share",
+    "window server",
+]);
 
 function getWin() {
     for (let i = edgeRect.length - 1; i >= 0; i--) {
         if (edgeRect[i].type === "system") edgeRect.splice(i, 1);
     }
-    for (const win of windows) {
-        const x = Math.max(win.rect.x, 0);
-        const y = Math.max(win.rect.y, 0);
-        const w = Math.min(win.rect.w, mainCanvas.width - x);
-        const h = Math.min(win.rect.h, mainCanvas.height - y);
-        if (w < 12 || h < 12) continue;
+    if (!mainCanvas.width || !mainCanvas.height) return;
+
+    const nowScreen = getNowScreen();
+    const bounds = nowScreen?.bounds ?? {
+        x: 0,
+        y: 0,
+        width: mainCanvas.width,
+        height: mainCanvas.height,
+    };
+    const scaleX =
+        bounds.width > 0 ? mainCanvas.width / bounds.width : ratio || 1;
+    const scaleY =
+        bounds.height > 0 ? mainCanvas.height / bounds.height : ratio || 1;
+
+    const sorted = [...windows].sort((a, b) =>
+        b.z !== a.z ? b.z - a.z : (a.order ?? 0) - (b.order ?? 0),
+    );
+
+    let zRank = 0;
+    for (const win of sorted) {
+        if (win.pid === mainPid || win.minimized) continue;
+        const titleTrim = (win.title || "").trim();
+        const titleLower = titleTrim.toLowerCase();
+        const appTrim = (win.appName || "").trim();
+        const appLower = appTrim.toLowerCase();
+        if (
+            ignoredShellTitles.has(titleLower) ||
+            ignoredShellApps.has(appLower)
+        ) {
+            continue;
+        }
+
+        let rx = Math.round((win.dipRect.x - bounds.x) * scaleX);
+        let ry = Math.round((win.dipRect.y - bounds.y) * scaleY);
+        let rw = Math.round(win.dipRect.w * scaleX);
+        let rh = Math.round(win.dipRect.h * scaleY);
+
+        if (
+            rx >= mainCanvas.width ||
+            ry >= mainCanvas.height ||
+            rx + rw <= 0 ||
+            ry + rh <= 0
+        ) {
+            continue;
+        }
+
+        // 跳过覆盖全屏的无标题透明桌面壳层/覆盖层，避免遮挡底层真实窗口
+        if (
+            !titleTrim &&
+            rw >= mainCanvas.width * 0.96 &&
+            rh >= mainCanvas.height * 0.96
+        ) {
+            continue;
+        }
+
+        if (!win.maximized) {
+            const refined = refineWin32WindowBounds(
+                rx,
+                ry,
+                rw,
+                rh,
+                scaleX,
+                currentScreenImageData,
+            );
+            rx = refined.x;
+            ry = refined.y;
+            rw = refined.w;
+            rh = refined.h;
+        }
+
+        const x = Math.max(0, rx);
+        const y = Math.max(0, ry);
+        const w = Math.min(rx + rw, mainCanvas.width) - x;
+        const h = Math.min(ry + rh, mainCanvas.height) - y;
+        if (w < 20 || h < 20) continue;
+
         edgeRect.push({
-            x: x,
-            y: y,
+            x,
+            y,
             width: w,
             height: h,
             type: "system",
+            zRank: zRank++,
+            label: appTrim || titleTrim,
         });
     }
 }
@@ -731,6 +1132,7 @@ async function closeWin() {
     inlineOcr.clear();
     isShowBars = false;
     showBars(false);
+    currentScreenImageData = null;
     mainCanvas.width = drawCanvas.width = mainCanvas.width; // 确保清空画布
     cleanClip();
     document.documentElement.style.display = "none";
@@ -2312,17 +2714,32 @@ function drawClip() {
     else drawClipPoly(freeSelect);
 }
 
+function cancelHoverAnim() {
+    if (hoverAnimRaf) {
+        cancelAnimationFrame(hoverAnimRaf);
+        hoverAnimRaf = 0;
+    }
+    hoverAnimLastTs = 0;
+}
+
 function hideHoverBox() {
+    cancelHoverAnim();
     hoverBoxVisible = false;
-    clipHoverBox.el.classList.remove("clip-hover-visible", "clip-hover-snap");
+    hoverCurrentRect = null;
+    hoverTargetRect = null;
+    clipHoverBox.el.classList.remove("clip-hover-visible");
 }
 
 function cleanClip() {
     showMask(null);
     edgeKey = "";
     activeHoverRect = null;
+    activeHoverLabel = "";
     hoverListKey = "";
     hoverLayerIndex = 0;
+    hoverWheelLocked = false;
+    hoverWheelAccum = 0;
+    lockedHoverTarget = null;
     hideHoverBox();
     clipRectBorder.el.classList.remove("clip-locked");
     setClipAnim(false);
@@ -2332,6 +2749,11 @@ function cleanClip() {
 
 /** 缩放、平移后刷新遮罩和参考线 */
 function refreshClipUi() {
+    if (hoverBoxVisible && hoverTargetRect) {
+        cancelHoverAnim();
+        hoverCurrentRect = [...hoverTargetRect] as rect;
+        applyHoverVisual(hoverCurrentRect);
+    }
     drawClip();
     inlineOcr.updatePosition();
     if (nowMouseE) {
@@ -2347,60 +2769,270 @@ function refreshEdgeHint() {
     inEdge(src2pXYdb(e2srcPoint(nowMouseE)));
 }
 
+function rectIoU(a: rect, b: rect): number {
+    const ix0 = Math.max(a[0], b[0]);
+    const iy0 = Math.max(a[1], b[1]);
+    const ix1 = Math.min(a[0] + a[2], b[0] + b[2]);
+    const iy1 = Math.min(a[1] + a[3], b[1] + b[3]);
+    const iw = ix1 - ix0;
+    const ih = iy1 - iy0;
+    if (iw <= 0 || ih <= 0) return 0;
+    const inter = iw * ih;
+    const union = a[2] * a[3] + b[2] * b[3] - inter;
+    return union > 0 ? inter / union : 0;
+}
+
+function isNearSameRect(a: rect, b: rect, tol: number): boolean {
+    if (
+        Math.abs(a[0] - b[0]) <= tol &&
+        Math.abs(a[1] - b[1]) <= tol &&
+        Math.abs(a[2] - b[2]) <= tol &&
+        Math.abs(a[3] - b[3]) <= tol
+    ) {
+        return true;
+    }
+    return rectIoU(a, b) > 0.9;
+}
+
 /**
- * 自动框选提示（仅高亮当前鼠标下最精准的 1 个区域，支持滚轮切换层级与平滑动画）
+ * 自动框选提示（结合窗口 Z 序遮挡剔除 + 图像子区域融合 + 防抖动层级记忆）
  */
 function inEdge(p: editor_position) {
     if (rectSelect || selecting || drawingMode) {
         activeHoverRect = null;
+        activeHoverLabel = "";
         setEdge([]);
         return;
     }
 
-    const candidates: rect[] = [];
-    for (const i of edgeRect) {
-        if (!识别窗口 && i.type === "system") continue;
-        if (i.width < 12 || i.height < 12) continue;
-        const x0 = i.x;
-        const y0 = i.y;
-        const x1 = i.x + i.width;
-        const y1 = i.y + i.height;
-        if (x0 < p.x && p.x < x1 && y0 < p.y && p.y < y1) {
-            candidates.push([i.x, i.y, i.width, i.height]);
-        }
-    }
-    // 按面积从小到大排序并去重，优先选中最贴合鼠标位置的单个元素/窗口
-    candidates.sort((a, b) => a[2] * a[3] - b[2] * b[3]);
-    const dedup: rect[] = [];
-    for (const c of candidates) {
-        const dup = dedup.some(
-            (e) =>
-                Math.abs(e[0] - c[0]) <= 4 &&
-                Math.abs(e[1] - c[1]) <= 4 &&
-                Math.abs(e[2] - c[2]) <= 4 &&
-                Math.abs(e[3] - c[3]) <= 4,
-        );
-        if (!dup) dedup.push(c);
+    const cw = mainCanvas.width;
+    const ch = mainCanvas.height;
+    if (p.x < 0 || p.y < 0 || p.x >= cw || p.y >= ch) {
+        activeHoverRect = null;
+        activeHoverLabel = "";
+        setEdge([]);
+        return;
     }
 
-    const listKey = dedup.map((r) => r.join(",")).join(";");
-    if (listKey !== hoverListKey) {
-        hoverListKey = listKey;
-        hoverLayerIndex = 0;
+    const dprScale = Math.max(1, ratio || 1);
+    const dedupTol = Math.round(6 * dprScale);
+
+    // 1. 按 Z 序从前到后找出光标命中的最上层可见窗口，剔除被其遮挡的底层窗口
+    let topWin: (typeof edgeRect)[number] | null = null;
+    if (识别窗口) {
+        for (const item of edgeRect) {
+            if (item.type !== "system") continue;
+            if (
+                item.x <= p.x &&
+                p.x <= item.x + item.width &&
+                item.y <= p.y &&
+                p.y <= item.y + item.height
+            ) {
+                topWin = item;
+                break;
+            }
+        }
     }
+
+    // 2. 收集有意义的图像 UI 子区域（若命中顶层窗口，仅保留位于该窗口内部的子元素）
+    const minElemSize = Math.max(18, Math.round(20 * dprScale));
+    const minElemArea = Math.max(600, Math.round(720 * dprScale * dprScale));
+    const subRects: rect[] = [];
+    const topWinRect: rect | null = topWin
+        ? [topWin.x, topWin.y, topWin.width, topWin.height]
+        : null;
+    const topWinArea = topWin ? topWin.width * topWin.height : 0;
+
+    for (const item of edgeRect) {
+        if (item.type !== "image") continue;
+        if (item.width < minElemSize || item.height < minElemSize) continue;
+        if (item.width * item.height < minElemArea) continue;
+        if (
+            item.x >= p.x ||
+            p.x >= item.x + item.width ||
+            item.y >= p.y ||
+            p.y >= item.y + item.height
+        ) {
+            continue;
+        }
+
+        let rx = item.x;
+        let ry = item.y;
+        let rw = item.width;
+        let rh = item.height;
+
+        if (topWin) {
+            const ix0 = Math.max(rx, topWin.x);
+            const iy0 = Math.max(ry, topWin.y);
+            const ix1 = Math.min(rx + rw, topWin.x + topWin.width);
+            const iy1 = Math.min(ry + rh, topWin.y + topWin.height);
+            const iw = ix1 - ix0;
+            const ih = iy1 - iy0;
+            if (iw <= 0 || ih <= 0 || iw * ih < rw * rh * 0.88) {
+                continue;
+            }
+            rx = ix0;
+            ry = iy0;
+            rw = iw;
+            rh = ih;
+            if (rw < minElemSize || rh < minElemSize) continue;
+            if (
+                rw * rh >= topWinArea * 0.92 ||
+                (topWinRect &&
+                    isNearSameRect([rx, ry, rw, rh], topWinRect, dedupTol * 2))
+            ) {
+                continue;
+            }
+        } else if (rw * rh >= cw * ch * 0.95) {
+            continue;
+        }
+
+        subRects.push([rx, ry, rw, rh]);
+    }
+
+    subRects.sort((a, b) => a[2] * a[3] - b[2] * b[3]);
+
+    const dedup: rect[] = [];
+    const labels: string[] = [];
+    for (const c of subRects) {
+        if (!dedup.some((e) => isNearSameRect(e, c, dedupTol))) {
+            dedup.push(c);
+            labels.push("");
+        }
+    }
+
+    if (
+        topWinRect &&
+        !dedup.some((e) => isNearSameRect(e, topWinRect, dedupTol))
+    ) {
+        dedup.push(topWinRect);
+        labels.push(topWin?.label ?? "");
+    }
+
+    const fullRect: rect = [0, 0, cw, ch];
+    if (!dedup.some((e) => isNearSameRect(e, fullRect, dedupTol * 2))) {
+        dedup.push(fullRect);
+        labels.push(t("全屏"));
+    }
+
     rectInRect = dedup;
+
     if (dedup.length === 0) {
         activeHoverRect = null;
+        activeHoverLabel = "";
         setEdge([]);
+        return;
+    }
+
+    // 若用户刚通过滚轮锁定了某一层，只要鼠标仍在该锁定框内就优先保持匹配该层
+    if (hoverWheelLocked && lockedHoverTarget) {
+        const lx = lockedHoverTarget[0];
+        const ly = lockedHoverTarget[1];
+        const lw = lockedHoverTarget[2];
+        const lh = lockedHoverTarget[3];
+        if (p.x < lx || p.x > lx + lw || p.y < ly || p.y > ly + lh) {
+            hoverWheelLocked = false;
+            lockedHoverTarget = null;
+        } else {
+            let bestIdx = -1;
+            let bestIoU = 0.65;
+            for (let i = 0; i < dedup.length; i++) {
+                const iou = rectIoU(dedup[i], lockedHoverTarget);
+                if (iou > bestIoU) {
+                    bestIoU = iou;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx >= 0) {
+                hoverLayerIndex = bestIdx;
+            }
+        }
+    }
+
+    if (!hoverWheelLocked) {
+        // 默认优先选中结构完整的卡片/面板/窗口，避免划过文字或小图标时高频跳闪；小图标仍可通过滚轮下切选中
+        const prefMinW = Math.round(48 * dprScale);
+        const prefMinH = Math.round(32 * dprScale);
+        const prefMinArea = Math.round(2600 * dprScale * dprScale);
+        let defaultIdx = dedup.findIndex(
+            (r, idx) =>
+                idx < dedup.length - 1 &&
+                r[2] >= prefMinW &&
+                r[3] >= prefMinH &&
+                r[2] * r[3] >= prefMinArea,
+        );
+        if (defaultIdx < 0) defaultIdx = 0;
+        hoverLayerIndex = defaultIdx;
+    }
+
+    const idx =
+        ((hoverLayerIndex % dedup.length) + dedup.length) % dedup.length;
+    hoverLayerIndex = idx;
+    activeHoverRect = dedup[idx];
+    activeHoverLabel = labels[idx] ?? "";
+    setEdge([activeHoverRect]);
+}
+
+function applyHoverVisual(r: rect) {
+    const { hxl, hyt, hxr, hyb } = drawMaskCutout(r[0], r[1], r[2], r[3]);
+    const bw = Math.max(0, hxr - hxl);
+    const bh = Math.max(0, hyb - hyt);
+    if (bw > 2 && bh > 2) {
+        const s = clipHoverBox.el.style;
+        const tf = `translate3d(${hxl}px, ${hyt}px, 0)`;
+        const wStr = `${bw}px`;
+        const hStr = `${bh}px`;
+        if (s.transform !== tf) s.transform = tf;
+        if (s.width !== wStr) s.width = wStr;
+        if (s.height !== hStr) s.height = hStr;
+        clipHoverBox.el.classList.add("clip-hover-visible");
+        clipHoverBadge.el.classList.toggle("inside", hyt < 34);
     } else {
-        const idx =
-            ((hoverLayerIndex % dedup.length) + dedup.length) % dedup.length;
-        activeHoverRect = dedup[idx];
-        setEdge([activeHoverRect]);
+        clipHoverBox.el.classList.remove("clip-hover-visible");
     }
 }
 
-/** 更新唯一的智能识别高亮框与聚光遮罩（持久化元素实现平滑动画） */
+function tickHoverAnim(now: number) {
+    hoverAnimRaf = 0;
+    if (
+        !hoverBoxVisible ||
+        !hoverTargetRect ||
+        !hoverCurrentRect ||
+        rectSelect ||
+        selecting ||
+        drawingMode
+    ) {
+        return;
+    }
+    const dt =
+        hoverAnimLastTs > 0
+            ? Math.min(0.05, Math.max(0.001, (now - hoverAnimLastTs) / 1000))
+            : 1 / 60;
+    hoverAnimLastTs = now;
+
+    // 指数阻尼插值：高刷屏自适应（60/120/144/240Hz），中途切换目标丝滑转向不卡顿
+    const alpha = 1 - Math.exp(-dt * 32);
+    let settled = true;
+    for (let i = 0; i < 4; i++) {
+        const diff = hoverTargetRect[i] - hoverCurrentRect[i];
+        if (Math.abs(diff) > 0.35) {
+            hoverCurrentRect[i] += diff * alpha;
+            settled = false;
+        } else {
+            hoverCurrentRect[i] = hoverTargetRect[i];
+        }
+    }
+
+    applyHoverVisual(hoverCurrentRect);
+
+    if (!settled) {
+        hoverAnimRaf = requestAnimationFrame(tickHoverAnim);
+    } else {
+        hoverAnimLastTs = 0;
+    }
+}
+
+/** 更新唯一的智能识别高亮框与聚光遮罩（单 rAF 帧插值 + GPU translate3d，零重排卡顿） */
 function setEdge(rects: rect[]) {
     const target = rects[0] ?? null;
     const layerCount = rectInRect.length;
@@ -2408,48 +3040,39 @@ function setEdge(rects: rect[]) {
         layerCount > 0
             ? ((hoverLayerIndex % layerCount) + layerCount) % layerCount
             : 0;
-    const key = `${editorP.zoom}|${editorP.x}|${editorP.y}|${target ? target.join(",") : "none"}|${layerIdx}/${layerCount}`;
+    const key = `${editorP.zoom}|${editorP.x}|${editorP.y}|${target ? target.join(",") : "none"}|${layerIdx}/${layerCount}|${activeHoverLabel}`;
     if (key === edgeKey) return;
     edgeKey = key;
 
     if (!target || rectSelect || selecting || drawingMode) {
         hideHoverBox();
         if (!rectSelect && !selecting && !drawingMode) {
-            setClipAnim(true);
             drawMaskCutout(0, 0, mainCanvas.width, mainCanvas.height);
         }
         return;
     }
 
-    setClipAnim(true);
-    const { hxl, hyt, hxr, hyb } = drawMaskCutout(
-        target[0],
-        target[1],
-        target[2],
-        target[3],
-    );
-    const bw = Math.max(0, hxr - hxl);
-    const bh = Math.max(0, hyb - hyt);
-    if (bw > 2 && bh > 2) {
-        if (!hoverBoxVisible) {
-            clipHoverBox.el.classList.add("clip-hover-snap");
-            setElBox(clipHoverBox.el, hxl, hyt, bw, bh);
-            void clipHoverBox.el.offsetWidth;
-            clipHoverBox.el.classList.remove("clip-hover-snap");
-            hoverBoxVisible = true;
-        } else {
-            setElBox(clipHoverBox.el, hxl, hyt, bw, bh);
-        }
-        clipHoverBox.el.classList.add("clip-hover-visible");
-        const w = Math.round(target[2]);
-        const h = Math.round(target[3]);
-        clipHoverBadge.el.textContent =
-            layerCount > 1
-                ? `${w} × ${h}  ·  ${t("滚轮切换")} ${layerIdx + 1}/${layerCount}`
-                : `${w} × ${h}`;
-        clipHoverBadge.el.classList.toggle("inside", hyt < 34);
-    } else {
-        hideHoverBox();
+    const w = Math.round(target[2]);
+    const h = Math.round(target[3]);
+    const labelPart = activeHoverLabel ? `${activeHoverLabel}  ·  ` : "";
+    clipHoverBadge.el.textContent =
+        layerCount > 1
+            ? `${labelPart}${w} × ${h}  ·  ${t("滚轮切换")} ${layerIdx + 1}/${layerCount}`
+            : `${labelPart}${w} × ${h}`;
+
+    hoverTargetRect = [target[0], target[1], target[2], target[3]];
+    if (!hoverBoxVisible || !hoverCurrentRect || !选区平滑动画) {
+        cancelHoverAnim();
+        hoverCurrentRect = [target[0], target[1], target[2], target[3]];
+        hoverBoxVisible = true;
+        applyHoverVisual(hoverCurrentRect);
+        return;
+    }
+
+    hoverBoxVisible = true;
+    if (!hoverAnimRaf) {
+        hoverAnimLastTs = performance.now();
+        hoverAnimRaf = requestAnimationFrame(tickHoverAnim);
     }
 }
 
@@ -2585,6 +3208,45 @@ function changeWH(el: ElType<HTMLInputElement>) {
     followBar();
 }
 
+let mouseBarPatchData: ImageData | null = null;
+
+function readScreenPatchFast(
+    src: ImageData,
+    xOffset: number,
+    yOffset: number,
+    size: number,
+): ImageData {
+    if (
+        !mouseBarPatchData ||
+        mouseBarPatchData.width !== size ||
+        mouseBarPatchData.height !== size
+    ) {
+        mouseBarPatchData = new ImageData(size, size);
+    }
+    const dst = mouseBarPatchData.data;
+    dst.fill(0);
+    const srcData = src.data;
+    const sw = src.width;
+    const sh = src.height;
+    for (let dy = 0; dy < size; dy++) {
+        const sy = yOffset + dy;
+        if (sy < 0 || sy >= sh) continue;
+        const srcRow = sy * sw * 4;
+        const dstRow = dy * size * 4;
+        for (let dx = 0; dx < size; dx++) {
+            const sx = xOffset + dx;
+            if (sx < 0 || sx >= sw) continue;
+            const sIdx = srcRow + sx * 4;
+            const dIdx = dstRow + dx * 4;
+            dst[dIdx] = srcData[sIdx];
+            dst[dIdx + 1] = srcData[sIdx + 1];
+            dst[dIdx + 2] = srcData[sIdx + 2];
+            dst[dIdx + 3] = srcData[sIdx + 3];
+        }
+    }
+    return mouseBarPatchData;
+}
+
 function mouseBar(finalRect: rect, e: SrcPoint) {
     const { x, y } = src2cXY(e);
     const [x0, y0, width, height] = finalRect;
@@ -2593,12 +3255,22 @@ function mouseBar(finalRect: rect, e: SrcPoint) {
     const xOffset = x - delta;
     const yOffset = y - delta;
 
-    const imageData = mainCanvasContext.getImageData(
-        xOffset,
-        yOffset,
-        colorSize,
-        colorSize,
-    );
+    const imageData =
+        currentScreenImageData &&
+        !drawingMode &&
+        fabricCanvas.getObjects().length === 0
+            ? readScreenPatchFast(
+                  currentScreenImageData,
+                  xOffset,
+                  yOffset,
+                  colorSize,
+              )
+            : mainCanvasContext.getImageData(
+                  xOffset,
+                  yOffset,
+                  colorSize,
+                  colorSize,
+              );
 
     pointColorCanvasCtx.clearRect(0, 0, colorSize, colorSize);
     pointColorCanvasBgCtx.clearRect(0, 0, colorSize, colorSize);
@@ -4977,6 +5649,8 @@ const edgeRect: {
     width: number;
     height: number;
     type: "system" | "image";
+    zRank?: number;
+    label?: string;
 }[] = [];
 
 const drawSideEls: {
@@ -5126,9 +5800,17 @@ let /**是否选好了选区，若手动选好，自动框选提示关闭 */ rec
 
 let rectInRect: rect[] = [];
 let activeHoverRect: rect | null = null;
+let activeHoverLabel = "";
 let hoverLayerIndex = 0;
 let hoverListKey = "";
 let hoverBoxVisible = false;
+let hoverWheelLocked = false;
+let hoverWheelAccum = 0;
+let lockedHoverTarget: rect | null = null;
+let hoverCurrentRect: rect | null = null;
+let hoverTargetRect: rect | null = null;
+let hoverAnimRaf = 0;
+let hoverAnimLastTs = 0;
 let mouseMoveRaf = 0;
 
 const mouseBarW =
@@ -5343,13 +6025,16 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
     allScreens = wx.screen;
     const mainId = mainid;
     const i = getNowScreen(mainId);
-    windows = wx.window.map((w) => {
-        w.rect.x -= i.bounds?.x ?? 0;
-        w.rect.y -= i.bounds?.y ?? 0;
-        return w;
-    });
-    await setScreen(i);
+    windows = wx.window;
     const nowScreen = _displays.find((i) => i.id === mainId) || _displays[0]; // 非截屏，是屏幕
+    if (wx.type === "normal") {
+        ratio = window.devicePixelRatio || i.scaleFactor;
+    } else if (wx.type === "command") {
+        const x = store.get("自定义屏幕属性");
+        const s = x.find((i) => i.id === mainId);
+        ratio = s ? s.scaleFactor : nowScreen.scaleFactor;
+    }
+    await setScreen(i);
     const xy = { x: 0, y: 0 };
     if (wx.type === "normal") {
         ratio = window.devicePixelRatio || i.scaleFactor;
@@ -5432,8 +6117,12 @@ renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
 
     if (!rectSelect) {
         activeHoverRect = null;
+        activeHoverLabel = "";
         hoverLayerIndex = 0;
         hoverListKey = "";
+        hoverWheelLocked = false;
+        hoverWheelAccum = 0;
+        lockedHoverTarget = null;
         edgeKey = "";
         hideHoverBox();
         isShowBars = !store.get("工具栏.稍后出现");
@@ -5495,12 +6184,29 @@ document.onwheel = (e) => {
         !isModKey(e) &&
         rectInRect.length > 1
     ) {
-        hoverLayerIndex += e.deltaY > 0 ? 1 : -1;
+        e.preventDefault();
+        // 兼容普通鼠标滚轮（单格 100~120）与高精度触控板微滚动，防止一次滑动连跳数层
+        if (Math.abs(e.deltaY) >= 50) {
+            hoverWheelAccum = 0;
+            hoverLayerIndex += e.deltaY > 0 ? 1 : -1;
+        } else {
+            hoverWheelAccum += e.deltaY;
+            if (Math.abs(hoverWheelAccum) < 42) return;
+            hoverLayerIndex += hoverWheelAccum > 0 ? 1 : -1;
+            hoverWheelAccum = 0;
+        }
         const idx =
             ((hoverLayerIndex % rectInRect.length) + rectInRect.length) %
             rectInRect.length;
+        hoverLayerIndex = idx;
         activeHoverRect = rectInRect[idx];
-        setEdge([activeHoverRect]);
+        hoverWheelLocked = true;
+        lockedHoverTarget = [...activeHoverRect] as rect;
+        if (nowMouseE) {
+            inEdge(src2pXYdb(e2srcPoint(nowMouseE)));
+        } else {
+            setEdge([activeHoverRect]);
+        }
         return;
     }
 
@@ -5959,13 +6665,17 @@ hotkeys("s", () => {
     inlineOcr.clear();
     rectSelect = false;
     activeHoverRect = null;
+    activeHoverLabel = "";
     edgeKey = "";
     hoverListKey = "";
     hoverLayerIndex = 0;
+    hoverWheelLocked = false;
+    hoverWheelAccum = 0;
+    lockedHoverTarget = null;
     hideHoverBox();
     isShowBars = false;
     showBars(false);
-    setClipAnim(true);
+    setClipAnim(false);
     finalRect = [0, 0, mainCanvas.width, mainCanvas.height];
     drawClipRect();
     ensureImageEdge();
@@ -6068,7 +6778,9 @@ pointCenter.style.top = `${((colorSize - 1) / 2) * colorISize}px`;
 
 if (!store.get("鼠标跟随栏.显示")) mouseBarEl.style({ display: "none" });
 // 鼠标跟随栏
-const mainCanvasContext = mainCanvas.getContext("2d")!;
+const mainCanvasContext = mainCanvas.getContext("2d", {
+    willReadFrequently: true,
+})!;
 
 // 复制坐标
 mouseBarXy.on("click", () => {
