@@ -237,11 +237,42 @@ const defaultSetting: setting = {
             y: 10,
         },
         形状属性: {
+            rect: {
+                fc: "transparent",
+                sc: "#fa5151",
+                sw: 3,
+            },
+            frame: {
+                sc: "#fa5151",
+                sw: 3,
+            },
+            circle: {
+                fc: "transparent",
+                sc: "#fa5151",
+                sw: 3,
+            },
+            line: {
+                sc: "#fa5151",
+                sw: 3,
+            },
             arrow: {
+                sc: "#fa5151",
                 sw: 3,
                 arrowW: 10,
                 arrowH: 16,
                 arrowType: "stroke",
+            },
+            text: {
+                fc: "#fa5151",
+            },
+            number: {
+                fc: "#fa5151",
+                sc: "#ffffff",
+                sw: 2,
+            },
+            free: {
+                sc: "#fa5151",
+                sw: 4,
             },
             mask: { fc: "#0005" },
         },

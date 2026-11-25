@@ -815,7 +815,7 @@ body input {
     top: 0;
     z-index: 101;
     display: none;
-    width: min(244px, calc(100vw - 16px));
+    width: min(272px, calc(100vw - 16px));
     min-width: 0;
     max-width: calc(100vw - 16px);
     max-height: calc(100vh - 16px);
@@ -1062,6 +1062,67 @@ body input {
 #element_bar .prop_option.selected {
     background-color: var(--emphasis-color);
     color: var(--font-color-emphasis);
+}
+#element_bar .wx_quick_bar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 9px;
+    background-color: color-mix(in srgb, var(--font-color) 4%, transparent);
+    border: 1px solid var(--border-subtle);
+}
+#element_bar .wx_size_row,
+#element_bar .wx_swatch_row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+}
+#element_bar .wx_size_btn {
+    flex: 1 1 0;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    &:hover {
+        background-color: var(--hover-color);
+    }
+    &.selected {
+        background-color: var(--accent-soft);
+        outline: 1.5px solid var(--emphasis-color);
+    }
+}
+#element_bar .wx_size_dot {
+    border-radius: 999px;
+    background-color: var(--font-color);
+    display: block;
+}
+#element_bar .wx_size_btn.selected .wx_size_dot {
+    background-color: var(--emphasis-color);
+}
+#element_bar .wx_color_dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    border: 1.5px solid color-mix(in srgb, var(--font-color) 22%, transparent);
+    box-sizing: border-box;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+    &:hover {
+        transform: scale(1.14);
+    }
+    &.selected {
+        transform: scale(1.12);
+        border-color: #ffffff;
+        box-shadow: 0 0 0 2px var(--emphasis-color);
+    }
 }
 #element_bar .prop_toggle {
     width: 24px;

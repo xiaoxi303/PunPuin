@@ -3342,13 +3342,19 @@ function dashArray(dash: string | undefined) {
 
 function getShapePro(name: keyof typeof shapePro) {
     if (!shapePro[name]) shapePro[name] = {};
-    const v = {
-        fc: name === "text" ? strokeColor : fillColor,
-        sc: strokeColor,
-        sw: strokeWidth,
+    const pro = {
+        fc:
+            name === "text" || name === "number"
+                ? strokeColor
+                : name === "mask"
+                  ? "#0005"
+                  : fillColor,
+        sc: name === "number" ? "#ffffff" : strokeColor,
+        sw: name === "number" ? 2 : strokeWidth,
         shadow: 0,
         ...getShapeStyle(name),
     };
+    const v = pro;
     if (name === "free" || name === "eraser" || name === "spray") {
         v.sc = freeColor;
         v.sw = freeWidth;
@@ -6209,11 +6215,26 @@ fabricCanvas.setTargetFindTolerance(5);
 
 hisPush();
 
-const fillColor = "#fff";
-const strokeColor = "#333";
-const strokeWidth = 1;
-const freeColor = "#333";
-const freeWidth = 2;
+const wechatRed = "#fa5151";
+const fillColor = "transparent";
+const strokeColor = wechatRed;
+const strokeWidth = 3;
+const freeColor = wechatRed;
+const freeWidth = 4;
+const wechatPalette = [
+    { color: "#fa5151", name: "红色" },
+    { color: "#ffc300", name: "黄色" },
+    { color: "#07c160", name: "绿色" },
+    { color: "#10aeff", name: "蓝色" },
+    { color: "#8b5cf6", name: "紫色" },
+    { color: "#111827", name: "黑色" },
+    { color: "#ffffff", name: "白色" },
+] as const;
+const wechatStrokePresets = [
+    { sw: 2, dot: 5, name: "细" },
+    { sw: 4, dot: 8, name: "中" },
+    { sw: 7, dot: 12, name: "粗" },
+] as const;
 
 const shapePro: setting["图像编辑"]["形状属性"] = {};
 
@@ -7018,6 +7039,85 @@ function addHeader(
     elementBarHeader.clear().add(list);
 }
 
+function sameColorHex(a: string | undefined, b: string): boolean {
+    if (!a) return false;
+    try {
+        return (
+            chroma(a).hex("rgba").toLowerCase() ===
+            chroma(b).hex("rgba").toLowerCase()
+        );
+    } catch {
+        return false;
+    }
+}
+
+function quickWechatMarkBar(opts: {
+    getColor?: () => string | undefined;
+    setColor?: (v: string) => void;
+    getWidth?: () => number | undefined;
+    setWidth?: (v: number) => void;
+    onSync?: () => void;
+}) {
+    const box = view("y").class("wx_quick_bar");
+    if (opts.getWidth && opts.setWidth) {
+        const sizeRow = view("x").class("wx_size_row");
+        const btns = wechatStrokePresets.map((preset) => {
+            const dot = ele("span")
+                .class("wx_size_dot")
+                .style({ width: `${preset.dot}px`, height: `${preset.dot}px` });
+            const btn = view()
+                .class("wx_size_btn")
+                .attr({
+                    title: `${t("粗细")}: ${preset.name} (${preset.sw}px)`,
+                })
+                .add(dot)
+                .on("click", () => {
+                    opts.setWidth?.(preset.sw);
+                    syncSizes();
+                    opts.onSync?.();
+                });
+            return { sw: preset.sw, el: btn };
+        });
+        const syncSizes = () => {
+            const cur = opts.getWidth?.();
+            for (const item of btns) {
+                item.el.el.classList.toggle("selected", cur === item.sw);
+            }
+        };
+        syncSizes();
+        sizeRow.add(btns.map((b) => b.el));
+        box.add(sizeRow);
+    }
+    if (opts.getColor && opts.setColor) {
+        const swatchRow = view("x").class("wx_swatch_row");
+        const dots = wechatPalette.map((item) => {
+            const dot = view()
+                .class("wx_color_dot")
+                .style({ backgroundColor: item.color })
+                .attr({ title: t(item.name) })
+                .on("click", () => {
+                    opts.setColor?.(item.color);
+                    syncSwatches();
+                    opts.onSync?.();
+                });
+            return { color: item.color, el: dot };
+        });
+        const syncSwatches = () => {
+            const cur = opts.getColor?.();
+            for (const d of dots) {
+                d.el.el.classList.toggle(
+                    "selected",
+                    sameColorHex(cur, d.color),
+                );
+            }
+        };
+        syncSwatches();
+        swatchRow.add(dots.map((d) => d.el));
+        box.add(swatchRow);
+    }
+    return box;
+}
+
 function renderShapeToolPanel(kind: EditType["shape"]) {
     addHeader(`${kindTitle(kind)} · 默认`);
     const fill = (v: string) => {
@@ -7029,6 +7129,30 @@ function renderShapeToolPanel(kind: EditType["shape"]) {
     const width = (v: number) => {
         setShapeDefault(kind, "sw", v);
     };
+    const showQuickColor = kind !== "mask";
+    const showQuickWidth = kind !== "mask" && kind !== "text";
+    if (showQuickColor || showQuickWidth) {
+        elementBarBody.add(
+            quickWechatMarkBar({
+                getColor: showQuickColor
+                    ? () =>
+                          kind === "text" || kind === "number"
+                              ? getShapePro(kind).fc
+                              : getShapePro(kind).sc
+                    : undefined,
+                setColor: showQuickColor
+                    ? kind === "text" || kind === "number"
+                        ? fill
+                        : stroke
+                    : undefined,
+                getWidth: showQuickWidth
+                    ? () => getShapePro(kind).sw
+                    : undefined,
+                setWidth: showQuickWidth ? width : undefined,
+                onSync: () => renderShapeToolPanel(kind),
+            }),
+        );
+    }
 
     if (!["line", "arrow", "polyline", "frame"].includes(kind))
         elementBarBody.add(
@@ -7230,6 +7354,19 @@ function renderDrawToolPanel(modeType: EditType["draw"]) {
     addHeader(
         `${modeType === "eraser" ? "橡皮" : modeType === "spray" ? "喷刷" : "画笔"} · 默认`,
     );
+    elementBarBody.add(
+        quickWechatMarkBar({
+            getColor:
+                modeType !== "eraser"
+                    ? () => getShapePro(modeType).sc
+                    : undefined,
+            setColor:
+                modeType !== "eraser" ? (v) => setFreePro("sc", v) : undefined,
+            getWidth: () => getShapePro(modeType).sw,
+            setWidth: (v) => setFreePro("sw", v),
+            onSync: () => renderDrawToolPanel(modeType),
+        }),
+    );
     if (modeType !== "eraser")
         elementBarBody.add(
             propertyColor(
@@ -7396,6 +7533,35 @@ function renderElementPropertyPanel(objects: FabricObject[]) {
     const canStroke = objects.every(
         (o) => !["mask", "filter", "text"].includes(getObjectKind(o) ?? ""),
     );
+    if (canStroke || kind === "text") {
+        const useFillAsMainColor = kind === "text" || kind === "number";
+        elementBarBody.add(
+            quickWechatMarkBar({
+                getColor: () =>
+                    useFillAsMainColor
+                        ? commonValue(objects, (o) => o.fill?.toString())
+                        : commonValue(objects, (o) => o.stroke?.toString()),
+                setColor: (v) =>
+                    useFillAsMainColor
+                        ? applyActiveRemember(kind, "fc", v, (o) =>
+                              o.set("fill", v),
+                          )
+                        : applyActiveRemember(kind, "sc", v, (o) =>
+                              o.set("stroke", v),
+                          ),
+                getWidth: canStroke
+                    ? () => commonValue(objects, (o) => o.strokeWidth)
+                    : undefined,
+                setWidth: canStroke
+                    ? (v) =>
+                          applyActiveRemember(kind, "sw", v, (o) =>
+                              o.set("strokeWidth", v),
+                          )
+                    : undefined,
+                onSync: () => renderElementPropertyPanel(objects),
+            }),
+        );
+    }
     if (canFill)
         elementBarBody.add(
             propertyColor(
