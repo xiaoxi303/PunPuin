@@ -1,9 +1,8 @@
 /// <reference types="vite/client" />
 
 import { Buffer } from "node:buffer";
-import { exec, execSync } from "node:child_process";
+import { exec, execFileSync, execSync } from "node:child_process";
 import {
-    cpSync,
     existsSync,
     mkdir,
     mkdirSync,
@@ -805,7 +804,8 @@ process.on("unhandledRejection", (e) => {
 
 app.whenReady().then(() => {
     app.setName("PunPun");
-    console.log(`PunPun v${app.getVersion()} 测试版 启动`);
+    console.log(`PunPun v${app.getVersion()} 启动`);
+    syncWin32AutoStartPath();
 
     crashReporter.start({ uploadToServer: false });
 
@@ -1283,7 +1283,7 @@ function feedbackUrl(op?: {
         "body",
         [
             op?.main || "",
-            `版本：PunPun v${app.getVersion()} 测试版`,
+            `版本：PunPun v${app.getVersion()}`,
             `系统：${process.platform} ${release()} (${process.arch})`,
         ]
             .filter(Boolean)
@@ -1299,7 +1299,7 @@ function feedbackUrl2(op?: { title?: string; main?: string }) {
         "body",
         [
             op?.main || "",
-            `版本：PunPun v${app.getVersion()} 测试版`,
+            `版本：PunPun v${app.getVersion()}`,
             `系统：${process.platform} ${release()} (${process.arch})`,
         ]
             .filter(Boolean)
@@ -2321,38 +2321,148 @@ mainOn("move_user_data", ([target]) => {
     } catch (error) {}
     // todo 错误返回
 });
+const WIN_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const WIN_RUN_VALUE = "PunPun";
+
+function getLaunchExecutablePath(): string {
+    const portableExe = process.env.PORTABLE_EXECUTABLE_FILE?.trim();
+    if (portableExe && existsSync(portableExe)) return portableExe;
+    return process.execPath;
+}
+
+function queryWin32AutoStart(): boolean {
+    try {
+        execFileSync("reg", ["query", WIN_RUN_KEY, "/v", WIN_RUN_VALUE], {
+            stdio: "ignore",
+            windowsHide: true,
+        });
+        return true;
+    } catch {
+        return app.getLoginItemSettings({
+            path: getLaunchExecutablePath(),
+            args: ["--hidden"],
+        }).openAtLogin;
+    }
+}
+
+function writeWin32AutoStart(enable: boolean): boolean {
+    const exePath = getLaunchExecutablePath();
+    try {
+        // 清理可能残留的旧版 Electron 默认自启键
+        app.setLoginItemSettings({ openAtLogin: false });
+        app.setLoginItemSettings({
+            openAtLogin: false,
+            path: exePath,
+            args: ["--hidden"],
+        });
+    } catch {}
+
+    try {
+        if (enable) {
+            const cmd = `"${exePath}" --hidden`;
+            execFileSync(
+                "reg",
+                [
+                    "add",
+                    WIN_RUN_KEY,
+                    "/v",
+                    WIN_RUN_VALUE,
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    cmd,
+                    "/f",
+                ],
+                { stdio: "ignore", windowsHide: true },
+            );
+        } else {
+            execFileSync(
+                "reg",
+                ["delete", WIN_RUN_KEY, "/v", WIN_RUN_VALUE, "/f"],
+                { stdio: "ignore", windowsHide: true },
+            );
+        }
+        return true;
+    } catch {
+        try {
+            app.setLoginItemSettings({
+                openAtLogin: enable,
+                path: exePath,
+                args: enable ? ["--hidden"] : [],
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+}
+
+function syncWin32AutoStartPath() {
+    if (process.platform !== "win32" || !app.isPackaged) return;
+    if (queryWin32AutoStart()) {
+        writeWin32AutoStart(true);
+    }
+}
+
 mainOn("getAutoStart", () => {
+    if (process.platform === "win32") {
+        return queryWin32AutoStart();
+    }
     if (process.platform === "linux") {
         try {
             const autoStartPath = join(
                 homedir(),
+                ".config/autostart/punpun.desktop",
+            );
+            const legacyPath = join(
+                homedir(),
                 ".config/autostart/e-search.desktop",
             );
-            return existsSync(autoStartPath);
-        } catch (error) {
+            return existsSync(autoStartPath) || existsSync(legacyPath);
+        } catch {
             return false;
         }
     }
     return app.getLoginItemSettings().openAtLogin;
 });
+
 mainOn("setAutoStart", ([arg1]) => {
+    if (process.platform === "win32") {
+        return writeWin32AutoStart(Boolean(arg1));
+    }
     if (process.platform === "linux") {
         try {
             const autoStartDir = join(homedir(), ".config/autostart");
-            const autoStartFile = join(autoStartDir, "e-search.desktop");
+            const autoStartFile = join(autoStartDir, "punpun.desktop");
+            const legacyFile = join(autoStartDir, "e-search.desktop");
+            if (existsSync(legacyFile)) rmSync(legacyFile, { force: true });
             if (arg1) {
                 mkdirSync(autoStartDir, { recursive: true });
-                cpSync(join(runPath, "assets/e-search.desktop"), autoStartFile);
+                const exePath = getLaunchExecutablePath();
+                const desktopContent = [
+                    "[Desktop Entry]",
+                    "Type=Application",
+                    "Name=PunPun",
+                    `Exec="${exePath}" --hidden`,
+                    "Terminal=false",
+                    "StartupNotify=false",
+                    "X-GNOME-Autostart-enabled=true",
+                    "",
+                ].join("\n");
+                writeFileSync(autoStartFile, desktopContent, "utf8");
             } else {
-                rmSync(autoStartFile, { recursive: true });
+                rmSync(autoStartFile, { force: true });
             }
-        } catch {}
-    } else {
-        app.setLoginItemSettings({
-            openAtLogin: arg1,
-            args: arg1 ? ["--hidden"] : [],
-        });
+            return true;
+        } catch {
+            return false;
+        }
     }
+    app.setLoginItemSettings({
+        openAtLogin: Boolean(arg1),
+        args: arg1 ? ["--hidden"] : [],
+    });
+    return true;
 });
 mainOn("theme", ([arg1]) => {
     nativeTheme.themeSource = arg1;

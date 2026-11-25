@@ -1191,40 +1191,46 @@ body input {
     transition: opacity 0.14s ease;
 }
 
-/* OCR 原地透明可选文字框 */
+/* OCR 原地透明可选文字层（无外框，纯净选字） */
 .inline-ocr-line {
     position: absolute;
     box-sizing: border-box;
     color: transparent;
-    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     white-space: pre;
     user-select: text;
     -webkit-user-select: text;
     cursor: text;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--clip-border-color) 9%, transparent);
-    border: 1px solid
-        color-mix(in srgb, var(--clip-border-color) 32%, transparent);
-    transition:
-        background-color 0.12s ease,
-        border-color 0.12s ease;
+    border-radius: 2px;
+    background: transparent;
+    border: none;
+    transition: background-color 0.12s ease;
 }
 .inline-ocr-line:hover {
-    background: color-mix(in srgb, var(--clip-border-color) 16%, transparent);
-    border-color: color-mix(in srgb, var(--clip-border-color) 65%, transparent);
+    background: color-mix(in srgb, var(--clip-border-color) 8%, transparent);
 }
 .inline-ocr-line::selection {
-    background: color-mix(in srgb, var(--clip-border-color) 42%, transparent);
+    background: color-mix(in srgb, var(--clip-border-color) 38%, transparent);
     color: transparent;
 }
 
-/* 翻译原地覆盖块 */
-.inline-tr-block {
+/* 翻译原地无缝画布与透明选字层（零边框、零贴片阴影，与导出画面 1:1 一致） */
+.inline-tr-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    animation: inlineFadeIn 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.inline-tr-select-span {
     position: absolute;
     box-sizing: border-box;
-    padding: 1px 4px;
-    border-radius: 4px;
-    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: transparent;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     font-weight: 500;
     line-height: 1.22;
     word-break: break-word;
@@ -1232,11 +1238,10 @@ body input {
     user-select: text;
     -webkit-user-select: text;
     cursor: text;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
-    animation: inlineFadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.inline-tr-block::selection {
-    background: color-mix(in srgb, var(--clip-border-color) 38%, transparent);
+.inline-tr-select-span::selection {
+    background: color-mix(in srgb, var(--clip-border-color) 36%, transparent);
+    color: transparent;
 }
 @keyframes inlineFadeIn {
     from {

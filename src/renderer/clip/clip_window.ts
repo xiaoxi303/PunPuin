@@ -346,6 +346,7 @@ function setSetting() {
 
 let currentScreenImageData: ImageData | null = null;
 let edgeInitTimer = 0;
+let inlineOverlayActive = false;
 
 function toCanvas(canvas: HTMLCanvasElement, img: ImageData) {
     canvas
@@ -2653,7 +2654,13 @@ function drawClipRect() {
 
     const bw = Math.max(0, hxr - hxl);
     const bh = Math.max(0, hyb - hyt);
-    if (!hoverSpotlight && (rectSelect || selecting) && bw > 2 && bh > 2) {
+    if (
+        !hoverSpotlight &&
+        !inlineOverlayActive &&
+        (rectSelect || selecting) &&
+        bw > 2 &&
+        bh > 2
+    ) {
         clipRectBorder.el.style.display = "block";
         setElBox(clipRectBorder.el, hxl, hyt, bw, bh);
     } else {
@@ -5576,6 +5583,10 @@ const inlineOcr = createInlineOcrTranslate({
     getClipCanvas: () => getClipPhoto(true),
     src2screenX,
     src2screenY,
+    onStateChange: (active) => {
+        inlineOverlayActive = active;
+        drawClipRect();
+    },
     openInEditor: () => {
         const type = ocr引擎.gv;
         const c = getClipPhoto(true);

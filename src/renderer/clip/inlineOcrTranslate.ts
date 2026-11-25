@@ -14,6 +14,14 @@ type OcrParagraph = Awaited<
 
 type Rect = [number, number, number, number];
 
+type LineEraseInfo = {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    bg: [number, number, number];
+};
+
 type TranslatedBlock = {
     paragraph: OcrParagraph;
     sourceText: string;
@@ -24,6 +32,8 @@ type TranslatedBlock = {
     h: number;
     bg: [number, number, number];
     fg: [number, number, number];
+    bgSpread: number;
+    lineErases: LineEraseInfo[];
 };
 
 const QUICK_TARGET_LANGS = [
@@ -38,11 +48,15 @@ const QUICK_TARGET_LANGS = [
     { value: "es", name: "Español" },
 ];
 
+const INLINE_FONT_STACK =
+    '"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+
 type HostCallbacks = {
     getFinalRect: () => Rect;
     getClipCanvas: () => HTMLCanvasElement;
     src2screenX: (x: number) => number;
     src2screenY: (y: number) => number;
+    onStateChange?: (active: boolean) => void;
     openInEditor: () => void;
 };
 
@@ -56,8 +70,8 @@ function pickContrastingColor(
 ): [number, number, number] {
     const bgLum = rgbLuminance(bg);
     const fgLum = rgbLuminance(preferred);
-    if (Math.abs(bgLum - fgLum) >= 0.34) return preferred;
-    return bgLum > 0.55 ? [17, 24, 39] : [248, 250, 252];
+    if (Math.abs(bgLum - fgLum) >= 0.36) return preferred;
+    return bgLum > 0.54 ? [20, 24, 33] : [248, 250, 252];
 }
 
 function boxBounds(box: [number, number][]) {
@@ -118,6 +132,107 @@ function toRgbCss([r, g, b]: [number, number, number]) {
     return `rgb(${r}, ${g}, ${b})`;
 }
 
+function medianOf(arr: number[], fallback: number): number {
+    if (arr.length === 0) return fallback;
+    const sorted = [...arr].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+}
+
+/** 从原图文字外沿采样真实背景中位数颜色与纹理波动度，避免假底色形成色块框 */
+function samplePerimeterBg(
+    img: ImageData | null,
+    bx: number,
+    by: number,
+    bw: number,
+    bh: number,
+    fallback: [number, number, number],
+): { bg: [number, number, number]; spread: number } {
+    if (!img || img.width <= 0 || img.height <= 0) {
+        return { bg: fallback, spread: 0 };
+    }
+    const { data, width, height } = img;
+    const rs: number[] = [];
+    const gs: number[] = [];
+    const bs: number[] = [];
+
+    const pushPixel = (px: number, py: number) => {
+        const cx = Math.max(0, Math.min(width - 1, Math.round(px)));
+        const cy = Math.max(0, Math.min(height - 1, Math.round(py)));
+        const idx = (cy * width + cx) * 4;
+        rs.push(data[idx]);
+        gs.push(data[idx + 1]);
+        bs.push(data[idx + 2]);
+    };
+
+    const stepX = Math.max(1, Math.floor(bw / 20));
+    const stepY = Math.max(1, Math.floor(bh / 8));
+    for (let x = bx - 2; x <= bx + bw + 2; x += stepX) {
+        pushPixel(x, by - 2);
+        pushPixel(x, by + bh + 2);
+    }
+    for (let y = by; y <= by + bh; y += stepY) {
+        pushPixel(bx - 2, y);
+        pushPixel(bx + bw + 2, y);
+    }
+
+    const rMed = medianOf(rs, fallback[0]);
+    const gMed = medianOf(gs, fallback[1]);
+    const bMed = medianOf(bs, fallback[2]);
+
+    let diffSum = 0;
+    for (let i = 0; i < rs.length; i++) {
+        diffSum +=
+            (Math.abs(rs[i] - rMed) +
+                Math.abs(gs[i] - gMed) +
+                Math.abs(bs[i] - bMed)) /
+            3;
+    }
+    const spread = rs.length > 0 ? diffSum / rs.length : 0;
+    return { bg: [rMed, gMed, bMed], spread };
+}
+
+/** 从行内部采样与背景反差最大的真实字色 */
+function sampleInteriorFg(
+    img: ImageData | null,
+    bx: number,
+    by: number,
+    bw: number,
+    bh: number,
+    bg: [number, number, number],
+    fallback: [number, number, number],
+): [number, number, number] {
+    if (!img || img.width <= 0 || img.height <= 0) {
+        return pickContrastingColor(bg, fallback);
+    }
+    const { data, width, height } = img;
+    const bgLum = rgbLuminance(bg);
+    let bestDist = 0;
+    let best: [number, number, number] = fallback;
+    const x0 = Math.max(0, Math.round(bx));
+    const y0 = Math.max(0, Math.round(by));
+    const x1 = Math.min(width - 1, Math.round(bx + bw));
+    const y1 = Math.min(height - 1, Math.round(by + bh));
+    const stepX = Math.max(1, Math.floor((x1 - x0) / 24));
+    const stepY = Math.max(1, Math.floor((y1 - y0) / 8));
+
+    for (let y = y0; y <= y1; y += stepY) {
+        for (let x = x0; x <= x1; x += stepX) {
+            const idx = (y * width + x) * 4;
+            const c: [number, number, number] = [
+                data[idx],
+                data[idx + 1],
+                data[idx + 2],
+            ];
+            const dist = Math.abs(rgbLuminance(c) - bgLum);
+            if (dist > bestDist) {
+                bestDist = dist;
+                best = c;
+            }
+        }
+    }
+    return pickContrastingColor(bg, bestDist >= 0.25 ? best : fallback);
+}
+
 function wrapCanvasLines(
     ctx: CanvasRenderingContext2D,
     text: string,
@@ -139,6 +254,82 @@ function wrapCanvasLines(
     return lines.length > 0 ? lines : [text];
 }
 
+function computeTranslatedLayout(
+    ctx: CanvasRenderingContext2D,
+    blk: TranslatedBlock,
+) {
+    const lineCount = Math.max(1, blk.paragraph.src.length);
+    const baseLineH = blk.h / lineCount;
+    const areaFont = Math.sqrt(
+        (blk.w * blk.h * 0.8) / Math.max(1, blk.translatedText.length),
+    );
+    let fontSize = Math.max(
+        11,
+        Math.min(Math.round(baseLineH * 0.85), Math.round(areaFont), 64),
+    );
+    ctx.font = `500 ${fontSize}px ${INLINE_FONT_STACK}`;
+    let lines = wrapCanvasLines(ctx, blk.translatedText, blk.w);
+    while (lines.length * fontSize * 1.2 > blk.h * 1.14 && fontSize > 10) {
+        fontSize = Math.max(10, Math.floor(fontSize * 0.9));
+        ctx.font = `500 ${fontSize}px ${INLINE_FONT_STACK}`;
+        lines = wrapCanvasLines(ctx, blk.translatedText, blk.w);
+    }
+    return { fontSize, lines };
+}
+
+/** 无框自然融合绘制：按每行真实局部底色柔边擦除原文字，再直接原位渲染译文（无矩形框、无阴影贴片） */
+function paintSeamlessTranslation(
+    ctx: CanvasRenderingContext2D,
+    blocks: TranslatedBlock[],
+) {
+    ctx.save();
+    for (const blk of blocks) {
+        for (const le of blk.lineErases) {
+            const fillCss = toRgbCss(le.bg);
+            const feather = Math.max(2, Math.min(6, Math.round(le.h * 0.2)));
+            const rx = le.x - 1;
+            const ry = le.y - 1;
+            const rw = le.w + 2;
+            const rh = le.h + 2;
+            const radius = Math.min(4, rh / 2);
+
+            ctx.save();
+            ctx.fillStyle = fillCss;
+            ctx.shadowColor = fillCss;
+            ctx.shadowBlur = feather;
+            ctx.beginPath();
+            ctx.roundRect(rx, ry, rw, rh, radius);
+            ctx.fill();
+            // 二次填实中心笔划，边缘保持羽化自然过渡不留硬框
+            ctx.shadowBlur = Math.max(1, Math.round(feather * 0.5));
+            ctx.fill();
+            ctx.restore();
+        }
+
+        const { fontSize, lines } = computeTranslatedLayout(ctx, blk);
+        ctx.font = `500 ${fontSize}px ${INLINE_FONT_STACK}`;
+        ctx.textBaseline = "top";
+        const lineStep = fontSize * 1.2;
+        const totalTextH = lines.length * lineStep;
+        const startY = blk.y + Math.max(0, (blk.h - totalTextH) / 2);
+
+        if (blk.bgSpread > 20) {
+            ctx.strokeStyle = toRgbCss(blk.bg);
+            ctx.lineJoin = "round";
+            ctx.lineWidth = Math.max(2, fontSize * 0.16);
+            for (let i = 0; i < lines.length; i++) {
+                ctx.strokeText(lines[i], blk.x, startY + i * lineStep, blk.w);
+            }
+        }
+
+        ctx.fillStyle = toRgbCss(blk.fg);
+        for (let i = 0; i < lines.length; i++) {
+            ctx.fillText(lines[i], blk.x, startY + i * lineStep, blk.w);
+        }
+    }
+    ctx.restore();
+}
+
 export function createInlineOcrTranslate(host: HostCallbacks) {
     let mode: InlineMode = "none";
     let showOriginalCompare = false;
@@ -150,6 +341,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
     let cachedRectKey = "";
     let cachedCropW = 0;
     let cachedCropH = 0;
+    let cachedCropImageData: ImageData | null = null;
     let cachedParagraphs: OcrParagraph[] = [];
     let translatedBlocks: TranslatedBlock[] = [];
     let activeTargetLang =
@@ -217,11 +409,13 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
     }
 
     function clear() {
+        const wasActive = mode !== "none";
         runSeq++;
         mode = "none";
         showOriginalCompare = false;
         translatedBlocks = [];
         cachedRectKey = "";
+        cachedCropImageData = null;
         cachedParagraphs = [];
         overlayEl.el.classList.remove(
             "active",
@@ -233,6 +427,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         contentEl.clear();
         barEl.clear();
         window.getSelection()?.removeAllRanges();
+        if (wasActive) host.onStateChange?.(false);
     }
 
     async function ensureLocalOcr(ocrType: string) {
@@ -248,11 +443,16 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
     async function recognizeSelection(ocrType: string) {
         const rect = host.getFinalRect();
         const rectKey = `${rect.join(",")}|${ocrType || defaultOcrId}`;
-        if (cachedRectKey === rectKey && cachedParagraphs.length > 0) {
+        if (
+            cachedRectKey === rectKey &&
+            cachedParagraphs.length > 0 &&
+            cachedCropImageData
+        ) {
             return {
                 paragraphs: cachedParagraphs,
                 cropW: cachedCropW,
                 cropH: cachedCropH,
+                cropImg: cachedCropImageData,
             };
         }
 
@@ -262,6 +462,8 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         const canvas = host.getClipCanvas();
         const cropW = canvas.width;
         const cropH = canvas.height;
+        const cropImg =
+            canvas.getContext("2d")?.getImageData(0, 0, cropW, cropH) ?? null;
         const res = await lo.ocr(canvas.toDataURL("image/png"));
         const paragraphs = res.columns
             .flatMap((c) => c.parragraphs)
@@ -270,8 +472,9 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         cachedRectKey = rectKey;
         cachedCropW = cropW;
         cachedCropH = cropH;
+        cachedCropImageData = cropImg;
         cachedParagraphs = paragraphs;
-        return { paragraphs, cropW, cropH };
+        return { paragraphs, cropW, cropH, cropImg };
     }
 
     function renderLoadingBar(label: string) {
@@ -339,7 +542,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
                 lineEl.el.textContent = text;
 
                 if (measureCtx && boxW > 4) {
-                    measureCtx.font = `${fontSize}px "Segoe UI", "Microsoft YaHei", sans-serif`;
+                    measureCtx.font = `${fontSize}px ${INLINE_FONT_STACK}`;
                     const measuredW = measureCtx.measureText(text).width;
                     if (measuredW > 2) {
                         const sx = Math.max(
@@ -403,11 +606,28 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         blocks: TranslatedBlock[],
         cropW: number,
         cropH: number,
+        cropImg: ImageData | null,
     ) {
         contentEl.clear();
         overlayEl.el.classList.add("active", "mode-translate");
         overlayEl.el.classList.remove("mode-ocr");
         overlayEl.el.classList.toggle("comparing", showOriginalCompare);
+
+        // 直接在原分辨率画布上做无缝擦除与译文绘制，界面预览与复制/保存导出完全一致、无任何外框
+        const trCanvas = document.createElement("canvas");
+        trCanvas.className = "inline-tr-canvas";
+        trCanvas.width = Math.max(1, cropW);
+        trCanvas.height = Math.max(1, cropH);
+        const trCtx = trCanvas.getContext("2d");
+        if (trCtx) {
+            if (cropImg) {
+                trCtx.putImageData(cropImg, 0, 0);
+            } else {
+                trCtx.drawImage(host.getClipCanvas(), 0, 0);
+            }
+            paintSeamlessTranslation(trCtx, blocks);
+        }
+        contentEl.el.appendChild(trCanvas);
 
         const r = host.getFinalRect();
         const displayW = Math.max(
@@ -421,6 +641,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         const scaleX = displayW / Math.max(1, cropW);
         const scaleY = displayH / Math.max(1, cropH);
 
+        // 透明无边框选字层：支持鼠标划选译文复制，不产生任何视觉方框
         for (const blk of blocks) {
             const boxW = Math.max(16, blk.w * scaleX);
             const boxH = Math.max(14, blk.h * scaleY);
@@ -437,20 +658,18 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
                 ),
             );
 
-            const blockEl = view()
-                .class("inline-tr-block")
+            const selectSpan = view()
+                .class("inline-tr-select-span")
                 .attr({ title: `${t("原文")}：${blk.sourceText}` })
                 .style({
                     left: `${(blk.x / cropW) * 100}%`,
                     top: `${(blk.y / cropH) * 100}%`,
                     width: `${(blk.w / cropW) * 100}%`,
                     minHeight: `${(blk.h / cropH) * 100}%`,
-                    backgroundColor: toRgbCss(blk.bg),
-                    color: toRgbCss(blk.fg),
                     fontSize: `${fontSize}px`,
                 });
-            blockEl.el.textContent = blk.translatedText;
-            contentEl.add(blockEl);
+            selectSpan.el.textContent = blk.translatedText;
+            contentEl.add(selectSpan);
         }
 
         const langOptions = QUICK_TARGET_LANGS.map((i) => ({
@@ -534,6 +753,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         const mySeq = ++runSeq;
         mode = "ocr";
         showOriginalCompare = false;
+        host.onStateChange?.(true);
         overlayEl.el.classList.add("active", "mode-ocr");
         overlayEl.el.classList.remove("mode-translate", "comparing");
         contentEl.clear();
@@ -576,6 +796,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         const mySeq = ++runSeq;
         mode = "translate";
         showOriginalCompare = false;
+        host.onStateChange?.(true);
         activeTargetLang =
             store.get("屏幕翻译.语言.to") ||
             store.get("语言.语言") ||
@@ -610,14 +831,47 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
             const results = await translateTexts(sources, activeTargetLang);
             if (mySeq !== runSeq) return;
 
+            const cropImg = recognized.cropImg;
             translatedBlocks = recognized.paragraphs.map((p, idx) => {
                 const bounds = paragraphBounds(p);
                 const firstStyle = p.src[0]?.style;
-                const bg = safeColor(firstStyle?.bg, [245, 247, 250]);
-                const fg = pickContrastingColor(
-                    bg,
-                    safeColor(firstStyle?.text, [17, 24, 39]),
+                const fallbackBg = safeColor(firstStyle?.bg, [245, 247, 250]);
+                const fallbackFg = safeColor(firstStyle?.text, [20, 24, 33]);
+
+                const { bg, spread } = samplePerimeterBg(
+                    cropImg,
+                    bounds.x,
+                    bounds.y,
+                    bounds.w,
+                    bounds.h,
+                    fallbackBg,
                 );
+                const fg = sampleInteriorFg(
+                    cropImg,
+                    bounds.x,
+                    bounds.y,
+                    bounds.w,
+                    bounds.h,
+                    bg,
+                    fallbackFg,
+                );
+                const lineErases: LineEraseInfo[] = p.src.map((line) => {
+                    const lb = boxBounds(line.box);
+                    const lineFallbackBg = safeColor(line.style?.bg, bg);
+                    const sampledLine = samplePerimeterBg(
+                        cropImg,
+                        lb.x,
+                        lb.y,
+                        lb.w,
+                        lb.h,
+                        lineFallbackBg,
+                    );
+                    return {
+                        ...lb,
+                        bg: sampledLine.bg,
+                    };
+                });
+
                 return {
                     paragraph: p,
                     sourceText: sources[idx],
@@ -625,6 +879,11 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
                     ...bounds,
                     bg,
                     fg,
+                    bgSpread: spread,
+                    lineErases:
+                        lineErases.length > 0
+                            ? lineErases
+                            : [{ ...bounds, bg }],
                 };
             });
 
@@ -632,6 +891,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
                 translatedBlocks,
                 recognized.cropW,
                 recognized.cropH,
+                cropImg,
             );
         } catch (error) {
             if (mySeq !== runSeq) return;
@@ -658,52 +918,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         ) {
             return;
         }
-        ctx.save();
-        for (const blk of translatedBlocks) {
-            const padX = Math.max(2, Math.round(blk.h * 0.08));
-            const padY = Math.max(1, Math.round(blk.h * 0.06));
-            ctx.fillStyle = toRgbCss(blk.bg);
-            ctx.fillRect(
-                blk.x - padX,
-                blk.y - padY,
-                blk.w + padX * 2,
-                blk.h + padY * 2,
-            );
-
-            const lineCount = Math.max(1, blk.paragraph.src.length);
-            const baseLineH = blk.h / lineCount;
-            const areaFont = Math.sqrt(
-                (blk.w * blk.h * 0.78) / Math.max(1, blk.translatedText.length),
-            );
-            let fontSize = Math.max(
-                12,
-                Math.min(
-                    Math.round(baseLineH * 0.84),
-                    Math.round(areaFont),
-                    64,
-                ),
-            );
-            ctx.font = `500 ${fontSize}px "Segoe UI", "Microsoft YaHei", sans-serif`;
-            let lines = wrapCanvasLines(ctx, blk.translatedText, blk.w);
-            while (
-                lines.length * fontSize * 1.22 > blk.h * 1.15 &&
-                fontSize > 10
-            ) {
-                fontSize = Math.max(10, Math.floor(fontSize * 0.9));
-                ctx.font = `500 ${fontSize}px "Segoe UI", "Microsoft YaHei", sans-serif`;
-                lines = wrapCanvasLines(ctx, blk.translatedText, blk.w);
-            }
-
-            ctx.fillStyle = toRgbCss(blk.fg);
-            ctx.textBaseline = "top";
-            const lineStep = fontSize * 1.2;
-            const totalTextH = lines.length * lineStep;
-            const startY = blk.y + Math.max(0, (blk.h - totalTextH) / 2);
-            for (let i = 0; i < lines.length; i++) {
-                ctx.fillText(lines[i], blk.x, startY + i * lineStep, blk.w);
-            }
-        }
-        ctx.restore();
+        paintSeamlessTranslation(ctx, translatedBlocks);
     }
 
     function tryCopySelectedText(): boolean {

@@ -588,14 +588,14 @@ const build = {
     portable: {
         artifactName:
             arch === "x64"
-                ? "PunPun-v0.2.0-测试版-免安装.exe"
-                : `PunPun-v0.2.0-测试版-win-${arch}-免安装.exe`,
+                ? "PunPun-v0.2.1-win-x64.exe"
+                : `PunPun-v0.2.1-win-${arch}.exe`,
     },
     nsis: {
         artifactName:
             arch === "x64"
-                ? "PunPun-v0.2.0-测试版-免安装.exe"
-                : `PunPun-v0.2.0-测试版-win-${arch}-免安装.exe`,
+                ? "PunPun-v0.2.1-win-x64.exe"
+                : `PunPun-v0.2.1-win-${arch}.exe`,
         script: "./script/portable-fast.nsi",
         oneClick: true,
         perMachine: false,

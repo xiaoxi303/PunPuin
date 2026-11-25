@@ -1,6 +1,11 @@
-name: Build Windows & macOS
+name: Build & Publish Packages
 
 on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
   workflow_dispatch:
     inputs:
       targets:
@@ -12,15 +17,17 @@ on:
           - windows
           - macos
       publish_release:
-        description: 是否同时发布为 GitHub Release
+        description: 是否同时发布到 GitHub Release 与软件包 (Packages)
         type: boolean
         default: true
-  push:
-    tags:
-      - "*"
+
+concurrency:
+  group: build-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build-windows:
@@ -174,7 +181,7 @@ jobs:
           retention-days: 30
 
   release:
-    name: Publish GitHub Release
+    name: Publish GitHub Packages & Release
     needs:
       - build-windows
       - build-macos
@@ -185,22 +192,61 @@ jobs:
       needs.build-macos.result != 'failure' &&
       needs.build-macos.result != 'cancelled' &&
       (needs.build-windows.result == 'success' || needs.build-macos.result == 'success') &&
-      (startsWith(github.ref, 'refs/tags/') || inputs.publish_release)
+      (github.event_name != 'workflow_dispatch' || inputs.publish_release)
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Read package version
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+          else
+            TAG_NAME="v${VERSION}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Download packaged artifacts
         uses: actions/download-artifact@v8
         with:
           path: dist-artifacts
           merge-multiple: true
 
-      - name: Create GitHub Release
+      - name: Publish to GitHub Packages (GHCR)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          cat > Dockerfile.pkg <<EOF
+          FROM scratch
+          LABEL org.opencontainers.image.title="PunPun"
+          LABEL org.opencontainers.image.description="PunPun v${{ steps.meta.outputs.version }} 正式版安装包（Windows .exe / macOS .dmg & .zip）"
+          LABEL org.opencontainers.image.version="${{ steps.meta.outputs.version }}"
+          LABEL org.opencontainers.image.source="https://github.com/${{ github.repository }}"
+          LABEL org.opencontainers.image.licenses="GPL-3.0"
+          COPY dist-artifacts/ /packages/
+          EOF
+          docker build -f Dockerfile.pkg \
+            -t "ghcr.io/${REPO_LOWER}:${{ steps.meta.outputs.version }}" \
+            -t "ghcr.io/${REPO_LOWER}:latest" \
+            .
+          docker push "ghcr.io/${REPO_LOWER}:${{ steps.meta.outputs.version }}"
+          docker push "ghcr.io/${REPO_LOWER}:latest"
+
+      - name: Publish Official GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: dist-artifacts/**
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('punpun-v0.2.0-build-{0}', github.run_number) }}
-          prerelease: true
+          name: PunPun ${{ steps.meta.outputs.tag_name }} 正式版
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: false
+          make_latest: true
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

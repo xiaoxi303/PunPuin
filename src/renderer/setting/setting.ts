@@ -2045,9 +2045,10 @@ const xs: Record<
         el: () =>
             xSwitch()
                 .on("input", (_e, el) => {
-                    renderSend("setAutoStart", [el.gv]);
+                    renderSendSync("setAutoStart", [el.gv]);
+                    el.sv(Boolean(renderSendSync("getAutoStart", [])));
                 })
-                .sv(renderSendSync("getAutoStart", [])),
+                .sv(Boolean(renderSendSync("getAutoStart", []))),
     },
     _qsq: {
         name: "取色器预览",
@@ -6179,7 +6180,7 @@ function about() {
                 fontWeight: 700,
                 letterSpacing: "-0.02em",
             }),
-            txt(noI18n(`v${packageJson.version} 测试版`)).class("pun-pill"),
+            txt(noI18n(`v${packageJson.version} 正式版`)).class("pun-pill"),
         ]);
     const version = button(t("检查更新"))
         .attr({ title: "点击检查更新" })
@@ -6499,7 +6500,7 @@ const brandHeader = view("y")
                                     lineHeight: "1.2",
                                 }),
                             ]),
-                        txt(noI18n(`v${packageJson.version} 测试版`))
+                        txt(noI18n(`v${packageJson.version} 正式版`))
                             .class("pun-pill")
                             .style({
                                 fontSize: "10.5px",

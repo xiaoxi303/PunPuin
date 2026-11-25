@@ -1,7 +1,7 @@
 {
     "name": "PunPun",
-    "version": "0.2.0",
-    "description": "PunPun 截屏 · 离线OCR · 离线翻译 · 标注 · GIF录屏（测试版）",
+    "version": "0.2.1",
+    "description": "PunPun 截屏 · 离线OCR · 离线翻译 · 标注 · 贴图 · GIF录屏",
     "main": "./out/main/main.js",
     "scripts": {
         "pack": "npm run build && electron-builder --dir -c electron-builder.config.js",
