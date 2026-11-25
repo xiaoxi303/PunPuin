@@ -52,6 +52,10 @@ import initScreenShots, { getWindowInfos } from "../screenShot/screenShot";
 import EdgeWorker from "./edgeWorker?worker";
 import { createInlineOcrTranslate } from "./inlineOcrTranslate";
 
+const isMac = process.platform === "darwin";
+const isModKey = (e: { ctrlKey: boolean; metaKey: boolean }) =>
+    isMac ? e.metaKey || e.ctrlKey : e.ctrlKey;
+
 const screenShots = initScreenShots(
     { c: store.get("额外截屏器.命令"), path: store.get("额外截屏器.位置") },
     undefined,
@@ -5488,7 +5492,7 @@ document.onwheel = (e) => {
         !rectSelect &&
         !selecting &&
         !drawingMode &&
-        !e.ctrlKey &&
+        !isModKey(e) &&
         rectInRect.length > 1
     ) {
         hoverLayerIndex += e.deltaY > 0 ? 1 : -1;
@@ -5502,12 +5506,12 @@ document.onwheel = (e) => {
 
     document.body.classList.add("editor_bg");
 
-    if ((nowType === "draw" || nowType === "shape") && !e.ctrlKey) {
+    if ((nowType === "draw" || nowType === "shape") && !isModKey(e)) {
         adjustStrokeWidth(e.deltaY / 50);
         return;
     }
 
-    if (e.ctrlKey) {
+    if (isModKey(e)) {
         const zz = 1 + Math.abs(e.deltaY) / 300;
         const z = e.deltaY > 0 ? zoomW / zz : zoomW * zz;
         zoomW = z;
@@ -5537,7 +5541,7 @@ document.onwheel = (e) => {
 
 document.onkeyup = (e) => {
     if (e.key === "0") {
-        if (e.ctrlKey) {
+        if (isModKey(e)) {
             setEditorP(1 / window.devicePixelRatio, 0, 0); // todo 统一缩放标准
             zoomW = mainCanvas.width;
         }
@@ -5784,7 +5788,7 @@ function positionLongWarn() {
 
 trackPoint(pack(toolBar), {
     start: (e) => {
-        if (e.ctrlKey) {
+        if (isModKey(e)) {
             toolBar.style.transition = "none";
             return {
                 x: toolBar.offsetLeft,
@@ -5831,7 +5835,7 @@ document.body.onkeydown = (e) => {
         return;
     }
     let v = 1;
-    if (e.ctrlKey) v = v * 5;
+    if (isModKey(e)) v = v * 5;
     if (e.shiftKey) v = v * 10;
     if (e.key in o) {
         if (direction) {
@@ -6007,7 +6011,7 @@ for (const xel of whL) {
             }
         }
         let v = 1;
-        if (e.ctrlKey) v = v * 5;
+        if (isModKey(e)) v = v * 5;
         if (e.shiftKey) v = v * 10;
         if (e.key === "ArrowUp" && !Number.isNaN(Number(el.value))) {
             e.preventDefault();

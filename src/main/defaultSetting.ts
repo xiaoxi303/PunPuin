@@ -16,10 +16,10 @@ const defaultSetting: setting = {
     托盘: "彩色",
     快捷键: {
         自动识别: {
-            key: "Alt+V",
+            key: isMac ? "Control+Command+V" : "Alt+V",
         },
         截屏搜索: {
-            key: "Alt+C",
+            key: isMac ? "Control+Command+C" : "Alt+C",
         },
         选中搜索: {},
         剪贴板搜索: {},
@@ -117,12 +117,12 @@ const defaultSetting: setting = {
         高: "",
     },
     主页面快捷键: {
-        搜索: "Ctrl+Shift+S",
-        翻译: "Ctrl+Shift+T",
-        打开链接: "Ctrl+Shift+L",
-        删除换行: "Ctrl+Enter",
-        图片区: "Ctrl+P",
-        关闭: "Ctrl+W",
+        搜索: isMac ? "Command+Shift+S" : "Ctrl+Shift+S",
+        翻译: isMac ? "Command+Shift+T" : "Ctrl+Shift+T",
+        打开链接: isMac ? "Command+Shift+L" : "Ctrl+Shift+L",
+        删除换行: isMac ? "Command+Enter" : "Ctrl+Enter",
+        图片区: isMac ? "Command+P" : "Ctrl+P",
+        关闭: isMac ? "Command+W" : "Ctrl+W",
     },
     其他快捷键: {
         复制颜色: "K",

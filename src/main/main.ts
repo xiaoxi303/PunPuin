@@ -2371,6 +2371,9 @@ function normalizeAccelerator(raw: string): string {
         .filter(Boolean)
         .map((p) => {
             if (p === "Ctrl") return "Control";
+            if (p === "Option") return "Alt";
+            if (p === "Cmd") return "Command";
+            if (p === "CmdOrCtrl") return "CommandOrControl";
             if (p === "Meta" || p === "OS" || p === "Win") return "Super";
             if (p === " ") return "Space";
             if (p.length === 1 && /[a-z]/.test(p)) return p.toUpperCase();

@@ -65,6 +65,33 @@ import logo from "../assets/icon.svg";
 import testPhoto from "../assets/sample_picture.svg";
 
 const packageJson = JSON.parse(_package);
+const isMac = process.platform === "darwin";
+
+function formatShortcutBadge(raw?: string): string {
+    const value = raw?.trim();
+    if (!value) return "-";
+    if (!isMac) return value;
+    const symbolMap: Record<string, string> = {
+        Control: "⌃",
+        Ctrl: "⌃",
+        Alt: "⌥",
+        Option: "⌥",
+        Shift: "⇧",
+        Command: "⌘",
+        Cmd: "⌘",
+        CommandOrControl: "⌘",
+        CmdOrCtrl: "⌘",
+        Super: "⌘",
+        Enter: "↩",
+        Return: "↩",
+        Escape: "Esc",
+    };
+    return value
+        .split("+")
+        .filter(Boolean)
+        .map((part) => symbolMap[part] ?? part)
+        .join("");
+}
 
 import { githubMirrorList } from "../../../lib/github_mirror";
 import {
@@ -4693,7 +4720,6 @@ function searchEngineDialog(
 }
 
 function hotkey() {
-    const isMac = process.platform === "darwin";
     const modKeys = new Set(["Control", "Alt", "Shift", "Super", "Command"]);
     const modOrder = ["Control", "Alt", "Shift", "Super", "Command"];
     let mainKey = "";
@@ -5881,9 +5907,12 @@ function isDarkMode() {
 }
 
 function buildDashboardHero() {
-    const clipKey = getSet("快捷键.截屏搜索")?.key || "Alt+C";
-    const quickKey = getSet("快捷键.快速截屏")?.key || "-";
-    const dingKey = getSet("快捷键.剪贴板贴图")?.key || "-";
+    const clipKey = formatShortcutBadge(
+        getSet("快捷键.截屏搜索")?.key ||
+            (isMac ? "Control+Command+C" : "Alt+C"),
+    );
+    const quickKey = formatShortcutBadge(getSet("快捷键.快速截屏")?.key);
+    const dingKey = formatShortcutBadge(getSet("快捷键.剪贴板贴图")?.key);
     const isDirectML = getSet("AI.运行后端") === "directml";
 
     const quickItems: {
@@ -6444,7 +6473,9 @@ const sideBar = view("y")
         ),
     );
 
-const clipShortcutBadge = getSet("快捷键.截屏搜索")?.key || "Alt+C";
+const clipShortcutBadge = formatShortcutBadge(
+    getSet("快捷键.截屏搜索")?.key || (isMac ? "Control+Command+C" : "Alt+C"),
+);
 const brandHeader = view("y")
     .style({
         gap: "10px",
@@ -6634,7 +6665,7 @@ searchClearBtn.addInto(searchWrap).on("click", () => {
     showPage(main.at(Number(sideBarG.get())));
 });
 ele("kbd")
-    .add(noI18n("Ctrl+K"))
+    .add(noI18n(isMac ? "⌘K" : "Ctrl+K"))
     .style({
         position: "absolute",
         right: "10px",

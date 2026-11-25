@@ -45,6 +45,7 @@ import type { FSWatcher } from "node:fs";
 import xhistory from "../lib/history";
 
 initStyle(store);
+const isMac = process.platform === "darwin";
 
 type TabItem = {
     el: ElType<HTMLElement>;
@@ -1122,7 +1123,7 @@ function buttonSwitch(el: ElType<HTMLElement>, fun?: (s: boolean) => void) {
 textOut.el.style.fontSize = `${默认字体大小}px`;
 
 document.onwheel = (e) => {
-    if (e.ctrlKey) {
+    if (e.ctrlKey || (isMac && e.metaKey)) {
         const d = e.deltaY / Math.abs(e.deltaY);
         const size = Number(textOut.el.style.fontSize.replace("px", ""));
         setFontSize(size - d);
@@ -1239,7 +1240,7 @@ hotkeys("ctrl+h", () => {
     edit("show_history");
 });
 
-hotkeys("ctrl+a", () => {
+hotkeys(isMac ? "command+a" : "ctrl+a", () => {
     editor.selectAll();
 });
 
