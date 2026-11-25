@@ -159,7 +159,13 @@ function cacheDir() {
 }
 
 function bundledDir() {
-    return join(app.getAppPath(), "assets", "bergamot");
+    const raw = join(app.getAppPath(), "assets", "bergamot");
+    const unpacked = raw.replace(
+        /([\\/])app\.asar([\\/])/,
+        "$1app.asar.unpacked$2",
+    );
+    if (unpacked !== raw && existsSync(unpacked)) return unpacked;
+    return raw;
 }
 
 function releaseRelPath(asset: string) {

@@ -458,7 +458,7 @@ body input {
     box-sizing: border-box;
     border: 2px solid var(--clip-border-color);
     border-radius: 4px;
-    background: color-mix(in srgb, var(--clip-border-color) 7%, transparent);
+    background: transparent;
     box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.7),
         0 0 18px color-mix(in srgb, var(--clip-border-color) 42%, transparent);

@@ -34,7 +34,7 @@ const { join } = require("node:path") as typeof import("path");
 import { renderOn, renderSend, renderSendSync } from "../../../lib/ipc";
 import { t } from "../../../lib/translate/translate";
 import type { IconType } from "../../iconTypes";
-import ort, { getOrtExecutionProviders } from "../lib/ort";
+import { getOrt, getOrtSessionOptions } from "../lib/ort";
 import removeobj from "../lib/removeObj";
 
 function icon(src: IconType) {
@@ -69,8 +69,9 @@ setTitle(t("高级编辑"));
 const maskPens: Map<string, { w: number; ps: { x: number; y: number }[] }> =
     new Map();
 
-let maskOrt: Awaited<ReturnType<typeof ort.InferenceSession.create>> | null =
-    null;
+let maskOrt: Awaited<
+    ReturnType<typeof import("onnxruntime-node").InferenceSession.create>
+> | null = null;
 
 const pz = store.get("高级图片编辑.配置");
 const defaultConfig: typeof styleData = {
@@ -1440,11 +1441,10 @@ async function magicPen() {
             alert("未下载魔法橡皮模型，请在设置的“人工智能”页面下载");
             return;
         }
-        maskOrt = await ort.InferenceSession.create(modelPath, {
-            executionProviders: getOrtExecutionProviders(
-                store.get("AI.运行后端"),
-            ),
-        });
+        maskOrt = await getOrt().InferenceSession.create(
+            modelPath,
+            getOrtSessionOptions(store.get("AI.运行后端")),
+        );
     }
     if (!photo || !photoSrc) return;
     const w = photo.naturalWidth;
@@ -1505,7 +1505,7 @@ async function magicPen() {
         mask = maskCtx.getImageData(0, 0, w, h);
     }
     const outputData = await removeobj({
-        ort,
+        ort: getOrt(),
         session: maskOrt,
         img: photoSrc,
         mask: mask,

@@ -1,8 +1,26 @@
-// 官方二进制默认开启 1DS 遥测，必须在 ONNX Runtime 初始化前关闭。
-// renderer 构建会把 process.env 替换为空对象，这里通过 require 取真实的 env。
-require("node:process").env.ORT_DISABLE_TELEMETRY = "1";
+const fs = require("node:fs") as typeof import("node:fs");
 
-const ort = require("onnxruntime-node") as typeof import("onnxruntime-node");
+let cachedOrt: typeof import("onnxruntime-node") | null = null;
+
+export function getOrt(): typeof import("onnxruntime-node") {
+    if (!cachedOrt) {
+        require("node:process").env.ORT_DISABLE_TELEMETRY = "1";
+        cachedOrt =
+            require("onnxruntime-node") as typeof import("onnxruntime-node");
+    }
+    return cachedOrt;
+}
+
+export function resolveUnpackedPath(p: string): string {
+    const unpacked = p.replace(
+        /([\\/])app\.asar([\\/])/,
+        "$1app.asar.unpacked$2",
+    );
+    if (unpacked !== p && fs.existsSync(unpacked)) {
+        return unpacked;
+    }
+    return p;
+}
 
 export function getOrtExecutionProviders(backend?: string) {
     const mapped = backend === "directml" ? "dml" : backend || "cpu";
@@ -10,4 +28,16 @@ export function getOrtExecutionProviders(backend?: string) {
     return [{ name: mapped }, { name: "cpu" }];
 }
 
-export default ort;
+export function getOrtSessionOptions(backend?: string) {
+    const executionProviders = getOrtExecutionProviders(backend);
+    const isDml = backend === "directml" || backend === "dml";
+    return {
+        executionProviders,
+        ...(isDml
+            ? {
+                  enableMemPattern: false,
+                  executionMode: "sequential" as const,
+              }
+            : {}),
+    };
+}

@@ -48,6 +48,8 @@ export type RecordRect = {
 };
 
 type Message = {
+    clip_ready: () => void;
+    clip_reset: () => void;
     clip_show: () => void;
     clip_close: () => void;
     copy_image: (buffer: ArrayBuffer, type: string) => void;

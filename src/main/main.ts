@@ -75,6 +75,14 @@ import {
 } from "./githubFetch";
 
 const runPath = join(resolve(__dirname, ""), "../../");
+function resolveAssetPath(p: string) {
+    const unpacked = p.replace(
+        /([\\/])app\.asar([\\/])/,
+        "$1app.asar.unpacked$2",
+    );
+    if (unpacked !== p && existsSync(unpacked)) return unpacked;
+    return p;
+}
 const tmpDir = join(tmpdir(), "eSearch");
 const clipboardDir = join(tmpDir, "clipboard");
 
@@ -275,7 +283,7 @@ async function copyText(callback: (t: string) => void) {
             `osascript -e 'tell application "System Events"' -e 'delay 0.1' -e 'key code 8 using command down' -e 'end tell'`,
         );
     } else if (process.platform === "win32") {
-        exec(`"${join(runPath, "lib/copy.exe")}"`);
+        exec(`"${resolveAssetPath(join(runPath, "lib/copy.exe"))}"`);
     } else if (process.platform === "linux") {
         // @ts-ignore
         exec(store.get("主搜索功能.linux_copy") || "xdotool key ctrl+c");
@@ -733,7 +741,8 @@ const fallbackIcon = nativeImage.createFromBuffer(
 
 /** 依次读取可用的图标；文件缺失、损坏或路径打不开时换下一个，全部失败用内置图标 */
 function loadIcon(...paths: string[]) {
-    for (const p of paths) {
+    for (const rawPath of paths) {
+        const p = resolveAssetPath(rawPath);
         if (!existsSync(p)) continue;
         try {
             const image = nativeImage.createFromPath(p);
@@ -1048,59 +1057,79 @@ app.whenReady().then(() => {
             icon: notifyIcon,
         }).show();
 
+    function registerStartupHotkey(
+        storeKey: string,
+        accel: string,
+        action: () => void,
+    ) {
+        const delays = [0, 350, 900, 1800];
+        const attempt = (idx: number) => {
+            if (
+                registeredHotkeys.get(storeKey) === accel &&
+                globalShortcut.isRegistered(accel)
+            ) {
+                return;
+            }
+            let ok = false;
+            try {
+                ok = globalShortcut.register(accel, action);
+            } catch {
+                ok = false;
+            }
+            if (ok) {
+                registeredHotkeys.set(storeKey, accel);
+                return;
+            }
+            const nextIdx = idx + 1;
+            if (nextIdx < delays.length) {
+                setTimeout(() => attempt(nextIdx), delays[nextIdx]);
+            } else {
+                console.error(
+                    `快捷键注册失败（保留配置不清空）：${storeKey} = ${accel}`,
+                );
+            }
+        };
+        attempt(0);
+    }
+
     const 快捷键 = store.get("快捷键");
+    let hotkeyNormalized = false;
     for (const [k, m] of typedEntries(快捷键)) {
         const accel = normalizeAccelerator(m.key || "");
         if (!accel) continue;
         if (accel !== m.key) {
             m.key = accel;
-            store.set("快捷键", 快捷键);
+            hotkeyNormalized = true;
         }
-        let ok = false;
-        try {
-            ok = globalShortcut.register(accel, () => {
-                快捷键函数[k]();
-            });
-        } catch {
-            ok = false;
-        }
-        if (ok) {
-            registeredHotkeys.set(`快捷键.${k}.key`, accel);
-        } else {
-            console.error(`快捷键注册失败：${k} = ${accel}`);
-            m.key = "";
-            store.set("快捷键", 快捷键);
-        }
+        registerStartupHotkey(`快捷键.${k}.key`, accel, () => {
+            快捷键函数[k]();
+        });
     }
+    if (hotkeyNormalized) store.set("快捷键", 快捷键);
+
     const 工具快捷键 = store.get("全局工具快捷键");
+    let toolHotkeyNormalized = false;
     for (const [k, m] of typedEntries(工具快捷键)) {
         const accel = normalizeAccelerator(m || "");
         if (!accel) continue;
         if (accel !== m) {
             工具快捷键[k] = accel;
-            store.set("全局工具快捷键", 工具快捷键);
+            toolHotkeyNormalized = true;
         }
-        let ok = false;
-        try {
-            ok = globalShortcut.register(accel, () => {
-                sendCaptureEvent(undefined, k as 功能);
-            });
-        } catch {
-            ok = false;
-        }
-        if (ok) {
-            registeredHotkeys.set(`全局工具快捷键.${k}`, accel);
-        } else {
-            console.error(`全局工具快捷键注册失败：${k} = ${accel}`);
-            工具快捷键[k] = "";
-            store.set("全局工具快捷键", 工具快捷键);
-        }
+        registerStartupHotkey(`全局工具快捷键.${k}`, accel, () => {
+            sendCaptureEvent(undefined, k as 功能);
+        });
     }
+    if (toolHotkeyNormalized) store.set("全局工具快捷键", 工具快捷键);
 
     // tmp目录
     if (!existsSync(tmpDir)) mkdir(tmpDir, () => {});
     if (keepClip) {
-        clipWindow = createClipWindow();
+        setTimeout(() => {
+            if (!clipWindow || clipWindow.isDestroyed()) {
+                clipWindow = createClipWindow();
+            }
+        }, 450);
     } else {
         new BrowserWindow({ show: false });
     }
@@ -1318,21 +1347,66 @@ function pushLog(op: (typeof logs)[0]) {
 // 截屏窗口
 let clipWindow: BrowserWindow | null = null;
 let clipWindowLoaded = false;
-const getClipWin = async () => {
-    if (clipWindowLoaded && !clipWindow?.isDestroyed())
-        return clipWindow as BrowserWindow;
-    if (!clipWindow || clipWindow.isDestroyed())
-        clipWindow = createClipWindow();
+let clipReadyWaiters: ((v: BrowserWindow) => void)[] = [];
+let lastClipCrashAt = 0;
 
+function markClipReady(win: BrowserWindow) {
+    if (!win || win.isDestroyed() || win !== clipWindow) return;
+    clipWindowLoaded = true;
+    const waiters = clipReadyWaiters;
+    clipReadyWaiters = [];
+    for (const resolveWaiter of waiters) {
+        resolveWaiter(win);
+    }
+}
+
+function destroyClipWindow() {
+    clipWindowLoaded = false;
+    const old = clipWindow;
+    clipWindow = null;
+    if (old && !old.isDestroyed()) {
+        try {
+            old.destroy();
+        } catch {}
+    }
+}
+
+function isClipWinHealthy(win: BrowserWindow | null): win is BrowserWindow {
+    return Boolean(
+        win &&
+            !win.isDestroyed() &&
+            !win.webContents.isDestroyed() &&
+            !win.webContents.isCrashed(),
+    );
+}
+
+mainOn("clip_ready", (_args, event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && win === clipWindow) {
+        markClipReady(win);
+    }
+});
+
+const getClipWin = async (): Promise<BrowserWindow> => {
+    if (clipWindowLoaded && isClipWinHealthy(clipWindow)) {
+        return clipWindow;
+    }
+    if (!isClipWinHealthy(clipWindow)) {
+        destroyClipWindow();
+        clipWindow = createClipWindow();
+    }
     return new Promise((re: (v: BrowserWindow) => void) => {
-        clipWindow?.webContents.once("did-finish-load", () => {
-            clipWindowLoaded = true;
-            return re(clipWindow as BrowserWindow);
-        });
+        if (clipWindowLoaded && isClipWinHealthy(clipWindow)) {
+            re(clipWindow);
+            return;
+        }
+        clipReadyWaiters.push(re);
     });
 };
+
 /** 初始化截屏后台窗口 */
 function createClipWindow() {
+    clipWindowLoaded = false;
     const primary = screen.getPrimaryDisplay();
     const _clipWindow = new BrowserWindow({
         icon: theIcon,
@@ -1341,15 +1415,15 @@ function createClipWindow() {
         width: primary.bounds.width,
         height: primary.bounds.height,
         show: false,
-        alwaysOnTop: !dev, // 为了方便调试，调试模式就不居上了
+        alwaysOnTop: !dev,
         fullscreenable: true,
         transparent: true,
         frame: false,
-        resizable: process.platform === "linux", // gnome下为false时无法全屏
+        resizable: process.platform === "linux",
         skipTaskbar: true,
         autoHideMenuBar: true,
         movable: false,
-        enableLargerThanScreen: true, // mac
+        enableLargerThanScreen: true,
         hasShadow: false,
         webPreferences: {
             nodeIntegration: true,
@@ -1366,8 +1440,24 @@ function createClipWindow() {
     if (dev) _clipWindow.webContents.openDevTools();
 
     _clipWindow.webContents.on("render-process-gone", (_e, d) => {
-        console.log(d);
+        console.error("clipWindow render-process-gone:", d);
         closeLongControl();
+        if (clipWindow === _clipWindow) {
+            destroyClipWindow();
+        } else if (!_clipWindow.isDestroyed()) {
+            try {
+                _clipWindow.destroy();
+            } catch {}
+        }
+        const now = Date.now();
+        const rapidCrash = now - lastClipCrashAt < 5000;
+        lastClipCrashAt = now;
+        if (!rapidCrash) {
+            if (keepClip) {
+                clipWindow = createClipWindow();
+            }
+            return;
+        }
         const id = dialog.showMessageBoxSync({
             message: t("截屏程序崩溃，是否重启？"),
             buttons: [t("重启"), t("退出应用")],
@@ -1375,11 +1465,21 @@ function createClipWindow() {
             cancelId: 1,
             detail: JSON.stringify(d),
         });
-        if (id === 0) exitFullScreen();
+        if (id === 0 && keepClip) {
+            clipWindow = createClipWindow();
+        }
         if (id === 1) app.exit();
     });
-    _clipWindow.webContents.once("did-finish-load", () => {
-        clipWindowLoaded = true;
+    _clipWindow.webContents.on("did-finish-load", () => {
+        setTimeout(() => {
+            if (
+                !clipWindowLoaded &&
+                _clipWindow === clipWindow &&
+                isClipWinHealthy(_clipWindow)
+            ) {
+                markClipReady(_clipWindow);
+            }
+        }, 120);
     });
     _clipWindow.webContents.on("console-message", (d) => {
         if (d.level !== "debug")
@@ -1391,6 +1491,10 @@ function createClipWindow() {
             });
     });
     _clipWindow.on("closed", () => {
+        if (clipWindow === _clipWindow) {
+            clipWindow = null;
+            clipWindowLoaded = false;
+        }
         closeLongControl();
     });
     return _clipWindow;
@@ -1951,13 +2055,17 @@ async function fullScreen(displayId?: number) {
         width: nearestScreen.bounds.width,
         height: nearestScreen.bounds.height,
     });
+    if (!dev) win.setAlwaysOnTop(true, "screen-saver");
     win.show();
     win.setSimpleFullScreen(true);
+    win.moveTop();
     win.focus();
+    win.webContents.focus();
 }
 
 async function sendCaptureEvent(data?: Buffer, type?: 功能) {
-    mainSend((await getClipWin())?.webContents, "clip_init", [
+    const win = await getClipWin();
+    mainSend(win.webContents, "clip_init", [
         screen.getAllDisplays(),
         data,
         screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id,
@@ -1970,15 +2078,16 @@ async function sendCaptureEvent(data?: Buffer, type?: 功能) {
 function exitFullScreen() {
     closeLongControl();
     if (keepClip) {
-        clipWindow?.setSimpleFullScreen(false);
-        clipWindow?.hide();
-        try {
-            clipWindow?.reload();
-        } catch {}
+        if (isClipWinHealthy(clipWindow)) {
+            clipWindow.setSimpleFullScreen(false);
+            clipWindow.hide();
+            mainSend(clipWindow.webContents, "clip_reset", []);
+        } else {
+            destroyClipWindow();
+            clipWindow = createClipWindow();
+        }
     } else {
-        clipWindow?.close();
-        clipWindow = null;
-        clipWindowLoaded = false;
+        destroyClipWindow();
     }
 }
 
@@ -2162,8 +2271,12 @@ mainOn("setting_quick_action", ([action]) => {
     }
 });
 mainOn("reloadMainFromSetting", () => {
-    if (clipWindow && !clipWindow.isDestroyed() && !clipWindow.isVisible())
-        clipWindow.reload();
+    if (!clipWindow?.isVisible()) {
+        destroyClipWindow();
+        if (keepClip) {
+            clipWindow = createClipWindow();
+        }
+    }
     if (contextMenu && tray) {
         const browserItem = contextMenu.items.find(
             (i) => i.label === t("浏览器打开"),

@@ -14,7 +14,7 @@ import { jsKeyCodeDisplay } from "../../../lib/key";
 import store from "../../../lib/store/renderStore";
 import { typedEntries } from "../../../lib/utils";
 import type { IconType } from "../../iconTypes";
-import ort, { getOrtExecutionProviders } from "../lib/ort";
+import { getOrt, getOrtSessionOptions, resolveUnpackedPath } from "../lib/ort";
 import { Class, cssVar, getImgUrl, initStyle } from "../root/root";
 
 function initRecord() {
@@ -248,13 +248,11 @@ async function initSeg() {
     segEl.add([cameraCanvas, bgEl, segCanvas]);
     seg = require("esearch-seg") as typeof import("esearch-seg");
     await seg.init({
-        segPath: path.join(__dirname, "../../assets/onnx/seg", "seg.onnx"),
-        ort,
-        ortOption: {
-            executionProviders: getOrtExecutionProviders(
-                store.get("AI.运行后端"),
-            ),
-        },
+        segPath: resolveUnpackedPath(
+            path.join(__dirname, "../../assets/onnx/seg", "seg.onnx"),
+        ),
+        ort: getOrt(),
+        ortOption: getOrtSessionOptions(store.get("AI.运行后端")),
         shape: [256, 144],
         invertOpacity: true,
         threshold: 0.7,

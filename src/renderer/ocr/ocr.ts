@@ -1,5 +1,5 @@
 import type { InitOcrBase } from "esearch-ocr";
-import ort, { getOrtExecutionProviders } from "../lib/ort";
+import { getOrt, getOrtSessionOptions, resolveUnpackedPath } from "../lib/ort";
 
 const path = require("node:path") as typeof import("path");
 const fs = require("node:fs") as typeof import("fs");
@@ -44,9 +44,10 @@ function loadOCR(
     if (!l) return null;
     function ocrPath(p: string) {
         if (!p) return "";
-        const xp = path.isAbsolute(p)
+        const raw = path.isAbsolute(p)
             ? p
             : path.join(__dirname, "../../assets/onnx/ppocr", p);
+        const xp = resolveUnpackedPath(raw);
         if (fs.existsSync(xp)) return xp;
         return "";
     }
@@ -64,8 +65,7 @@ function loadOCR(
     }
     const localOCR = require("esearch-ocr") as typeof import("esearch-ocr");
     const provider = store.get("AI.运行后端") || "cpu";
-    const executionProviders = getOrtExecutionProviders(provider);
-    console.log("ocr provider", provider, executionProviders);
+    const ortOption = getOrtSessionOptions(provider);
 
     return {
         ocr: localOCR,
@@ -88,8 +88,8 @@ function loadOCR(
                       },
                   }
                 : {}),
-            ort,
-            ortOption: { executionProviders },
+            ort: getOrt(),
+            ortOption,
         } as InitOcrBase,
     };
 }

@@ -92,6 +92,11 @@ import { ocrList } from "../ocr/ocr_omni";
 
 type SrcPoint = { x: number; y: number } & { readonly _: unique symbol };
 
+let elementBarVisible = false;
+let elementBarSide: "right" | "left" | "bottom" | "top" = "right";
+let elementBarRaf = 0;
+let propertyHistoryTimer: NodeJS.Timeout | undefined;
+
 initStyle(store);
 
 function iconEl(src: IconType) {
@@ -4036,11 +4041,11 @@ const 取色器格式位置 = allColorFormat.indexOf(取色器默认格式);
 const 取色器显示 = store.get("取色器.显示");
 const colorSize = store.get("取色器.大小");
 const colorISize = store.get("取色器.像素大小");
-const 记忆框选 = store.get("框选.记忆.开启");
-const 记忆框选值 = store.get("框选.记忆.rects") as {
+let 记忆框选 = store.get("框选.记忆.开启");
+let 记忆框选值 = store.get("框选.记忆.rects") as {
     [id: string]: rect;
 };
-const 识别窗口 = store.get("框选.识别窗口");
+let 识别窗口 = store.get("框选.识别窗口");
 let 选区平滑动画 = store.get("框选.动画") ?? true;
 const bSize = store.get("工具栏.按钮大小");
 
@@ -4795,20 +4800,32 @@ const saveType = view()
     .attr({ id: "save_type" })
     .addInto(centerBarEl)
     .add(view().add(t("保存文件格式为")));
-const saveTypeList: (typeof type)[] = ["png", "jpg", "webp", "bmp"];
-if (await isImageFormatSupported("avif")) saveTypeList.push("avif");
-saveTypeList.push("svg");
-const suffixList = saveTypeList.map((i) =>
-    view()
-        .data({ value: i })
-        .add(i)
+const saveTypeList: (typeof type)[] = ["png", "jpg", "webp", "bmp", "svg"];
+function createSuffixItem(fmt: typeof type) {
+    return view()
+        .data({ value: fmt })
+        .add(fmt)
         .on("click", () => {
-            type = i;
+            type = fmt;
             showSaveBar(false);
-            save(() => renderSendSync("clip_save", [i]));
-        }),
-);
-view().attr({ id: "suffix" }).add(suffixList).addInto(saveType);
+            save(() => renderSendSync("clip_save", [fmt]));
+        });
+}
+const suffixList = saveTypeList.map((fmt) => createSuffixItem(fmt));
+const suffixWrapEl = view()
+    .attr({ id: "suffix" })
+    .add(suffixList)
+    .addInto(saveType);
+void isImageFormatSupported("avif").then((supported) => {
+    if (!supported) return;
+    const avifEl = createSuffixItem("avif");
+    const svgEl = suffixList.at(-1)?.el;
+    if (svgEl?.parentNode === suffixWrapEl.el) {
+        suffixWrapEl.el.insertBefore(avifEl.el, svgEl);
+    } else {
+        suffixWrapEl.add(avifEl);
+    }
+});
 
 const mainCanvas = ele("canvas").attr({ id: "main_photo" }).addInto().el;
 const editor = view().attr({ id: "editor" }).addInto();
@@ -5272,8 +5289,44 @@ window.addEventListener("resize", () => {
     }
 });
 
+function resetClipSession() {
+    screenShotCache.clear();
+    inlineOcr.clear();
+    stopLongInput();
+    hideElementBar();
+    showSideBar(false);
+    showSaveBar(false);
+    cleanClip();
+    fabricCanvas.discardActiveObject();
+    fabricCanvas.clear();
+    rectSelect = false;
+    selecting = false;
+    moving = false;
+    down = false;
+    moved = false;
+    oFinalRect = null;
+    direction = "";
+    drawBarManualMoved = false;
+    记忆框选 = store.get("框选.记忆.开启");
+    记忆框选值 = store.get("框选.记忆.rects") as {
+        [id: string]: rect;
+    };
+    识别窗口 = store.get("框选.识别窗口");
+    setEditType("select", selectEditType);
+    document.body.classList.remove("editor_bg");
+}
+
+renderOn("clip_reset", () => {
+    resetClipSession();
+    isShowBars = false;
+    showBars(false);
+    document.body.style.opacity = "0";
+});
+
 renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
-    console.log("clip_init displays:", _displays);
+    document.documentElement.style.display = "";
+    document.body.style.opacity = "0";
+    resetClipSession();
     currentDisplays = _displays;
     mainPid = pid ?? 0;
     const wx = await screenShots(_displays, imgBuffer); // 只是截屏 也可能是小图片
@@ -6174,11 +6227,6 @@ for (const [key, filter] of typedEntries(filtetMap)) {
 }
 
 // 属性栏
-let elementBarVisible = false;
-let elementBarSide: "right" | "left" | "bottom" | "top" = "right";
-let elementBarRaf = 0;
-let propertyHistoryTimer: NodeJS.Timeout | undefined;
-
 function schedulePropertyHistory() {
     if (propertyHistoryTimer) clearTimeout(propertyHistoryTimer);
     propertyHistoryTimer = setTimeout(() => {
@@ -8313,3 +8361,4 @@ hotkeys("Ctrl+v", () => {
 });
 
 setEditType("select", selectEditType);
+renderSend("clip_ready", []);

@@ -237,7 +237,50 @@ async function downloadBergamotRuntime() {
 
 const BUNDLED_BERGAMOT_PAIRS = ["en-zh-Hans"];
 
+function hasValidBundledBergamotModels() {
+    for (const pairKey of BUNDLED_BERGAMOT_PAIRS) {
+        const pairDir = path.join(BERGAMOT_ASSETS, "models", pairKey);
+        if (!fs.existsSync(pairDir)) return false;
+        const versions = fs
+            .readdirSync(pairDir, { withFileTypes: true })
+            .filter((d) => d.isDirectory())
+            .map((d) => d.name);
+        let pairOk = false;
+        for (const ver of versions) {
+            const verDir = path.join(pairDir, ver);
+            const mfPath = path.join(verDir, "manifest.json");
+            if (!checkPath(mfPath)) continue;
+            try {
+                const mf = JSON.parse(fs.readFileSync(mfPath, "utf8"));
+                const files = Object.values(mf.files || {});
+                if (
+                    files.length > 0 &&
+                    files.every((f) => {
+                        const dest = path.join(
+                            verDir,
+                            `${f.hash.slice(0, 16)}-${f.filename}`,
+                        );
+                        return (
+                            checkPath(dest) &&
+                            sha256(fs.readFileSync(dest)) === f.hash
+                        );
+                    })
+                ) {
+                    pairOk = true;
+                    break;
+                }
+            } catch {}
+        }
+        if (!pairOk) return false;
+    }
+    return true;
+}
+
 async function downloadBergamotModels() {
+    if (hasValidBundledBergamotModels()) {
+        console.log("已复用本地内置离线翻译模型:", BUNDLED_BERGAMOT_PAIRS.join(", "));
+        return;
+    }
     const releasePath = `${BERGAMOT_REPO}/releases/download/${BERGAMOT_RELEASE}`;
     let manifest;
     for (const mirror of bergamotMirrors) {
@@ -374,6 +417,25 @@ const beforePack = async () => {
 };
 
 /**
+ * @param {import("electron-builder").AfterPackContext} context
+ */
+const afterPack = async (context) => {
+    const bloatFiles = [
+        "LICENSES.chromium.html",
+        "LICENSE.electron.txt",
+        "vk_swiftshader.dll",
+        "vk_swiftshader_icd.json",
+        "vulkan-1.dll",
+    ];
+    for (const f of bloatFiles) {
+        const p = path.join(context.appOutDir, f);
+        if (fs.existsSync(p)) {
+            fs.rmSync(p, { force: true });
+        }
+    }
+};
+
+/**
  * @type import("electron-builder").Configuration
  */
 const build = {
@@ -383,6 +445,7 @@ const build = {
     compression: "maximum",
     directories: {
         output: "build",
+        buildResources: "build",
     },
     icon: "./assets/logo",
     electronDownload: {
@@ -410,9 +473,20 @@ const build = {
             role: "Editor",
         },
     ],
-    asar: false,
+    asar: true,
+    asarUnpack: [
+        "**/*.node",
+        "node_modules/onnxruntime-node/bin/**",
+        "node_modules/node-screenshots*/**",
+        "node_modules/uiohook-napi/**",
+        "assets/onnx/**",
+        "assets/bergamot/**",
+        "assets/logo/**",
+        "lib/copy.exe",
+    ],
     artifactName: `\${productName}-\${version}-\${platform}-${arch}.\${ext}`,
     beforePack: beforePack,
+    afterPack: afterPack,
     linux: {
         category: "Utility",
         target: [
@@ -456,7 +530,7 @@ const build = {
         icon: "./assets/logo/icon.ico",
         target: [
             {
-                target: "portable",
+                target: "nsis",
                 arch: arch,
             },
         ],
@@ -483,9 +557,14 @@ const build = {
         artifactName: "PunPun-v0.2.0-测试版-免安装.exe",
     },
     nsis: {
-        oneClick: false,
-        allowToChangeInstallationDirectory: true,
+        artifactName: "PunPun-v0.2.0-测试版-免安装.exe",
+        script: "./script/portable-fast.nsi",
+        oneClick: true,
+        perMachine: false,
+        allowElevation: false,
+        packElevateHelper: false,
         differentialPackage: false,
+        warningsAsErrors: false,
     },
 };
 
