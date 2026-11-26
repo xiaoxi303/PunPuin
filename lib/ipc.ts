@@ -128,6 +128,7 @@ type Message = {
         act: 功能 | undefined,
         mainPid?: number,
         nativeWinRects?: NativeWinRect[],
+        cursorPoint?: { x: number; y: number },
     ) => void;
     open_this_browser: (window_name: number, url: string) => void;
     edit_pic: (img: Buffer<ArrayBufferLike>) => void;
@@ -189,9 +190,9 @@ type Message = {
     theme: (t: NativeTheme["themeSource"]) => void;
     dingIgnore: (ignore: boolean) => void;
     recordStop: () => void;
-    recordTime: (time: string) => void;
+    recordTime: (time: string, paused?: boolean) => void;
     recordCamera: (camera: boolean) => void;
-    recordState: (state: "stop") => void;
+    recordState: (state: "stop" | "pause" | "resume" | "cancel") => void;
     dingShare: (
         data:
             | { type: "close"; id: string; closeAll: boolean }

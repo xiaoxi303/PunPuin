@@ -1,0 +1,602 @@
+/* 录屏工作台（普通录屏 & 超级录屏）现代界面样式 */
+body {
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--font-color);
+    user-select: none;
+}
+
+@keyframes veRecPulse {
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+    }
+    50% {
+        transform: scale(0.92);
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+}
+
+/* 录制中全屏状态卡片 */
+.ve_recording_overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+        radial-gradient(
+            circle at 50% 25%,
+            color-mix(in srgb, var(--emphasis-color) 12%, transparent),
+            transparent 60%
+        ),
+        var(--bg);
+}
+
+.ve_recording_card {
+    width: min(440px, 92vw);
+    padding: 28px 28px 24px;
+    border-radius: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+}
+
+.ve_rec_status_pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.24);
+}
+
+.ve_rec_status_pill[data-paused="true"] {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.28);
+}
+
+.ve_rec_dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #ef4444;
+    animation: veRecPulse 1.6s ease-in-out infinite;
+}
+
+.ve_rec_status_pill[data-paused="true"] .ve_rec_dot {
+    background: #f59e0b;
+    animation: none;
+}
+
+.ve_rec_timer_big {
+    font-family: var(--monospace);
+    font-variant-numeric: tabular-nums;
+    font-size: 38px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--font-color);
+}
+
+.ve_audio_box {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ve_audio_meter {
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--font-color) 10%, transparent);
+    overflow: hidden;
+}
+
+.ve_audio_meter_fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #10b981, #3b82f6);
+    transition: width 0.08s linear;
+}
+
+.ve_rec_actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.ve_btn_stop_primary {
+    height: 40px !important;
+    padding-inline: 20px !important;
+    border-radius: 12px !important;
+    border: none !important;
+    outline: none !important;
+    background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+}
+
+.ve_btn_stop_primary:hover {
+    filter: brightness(1.07);
+    box-shadow: 0 6px 18px rgba(239, 68, 68, 0.46);
+}
+
+/* 顶部工作台导航栏 */
+.ve_studio_header {
+    height: 54px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+.ve_mode_badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--emphasis-color);
+    border: 1px solid color-mix(in srgb, var(--emphasis-color) 24%, transparent);
+    flex-shrink: 0;
+}
+
+.ve_mode_badge_dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--emphasis-color);
+}
+
+.ve_codec_chip {
+    font-size: 11.5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--font-color-l);
+    border: 1px solid var(--border-subtle);
+    cursor: pointer;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.ve_codec_chip:hover {
+    color: var(--font-color);
+    border-color: var(--border-color);
+}
+
+.ve_progress_pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    font-size: 12px;
+    color: var(--font-color-l);
+}
+
+.ve_progress_track {
+    width: 96px;
+    height: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--font-color) 12%, transparent);
+    overflow: hidden;
+}
+
+.ve_progress_fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--emphasis-color), #06b6d4);
+    transition: width 0.14s ease;
+}
+
+.ve_progress_pill[data-done="true"] .ve_progress_fill {
+    background: #10b981;
+}
+
+.ve_export_btn {
+    height: 34px !important;
+    padding-inline: 14px !important;
+    border-radius: 10px !important;
+    border: none !important;
+    outline: none !important;
+    background: linear-gradient(
+        135deg,
+        var(--emphasis-color),
+        color-mix(in srgb, var(--emphasis-color) 76%, #06b6d4)
+    ) !important;
+    color: #ffffff !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    box-shadow: 0 3px 12px
+        color-mix(in srgb, var(--emphasis-color) 36%, transparent);
+}
+
+.ve_export_btn:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 5px 16px
+        color-mix(in srgb, var(--emphasis-color) 48%, transparent);
+}
+
+.ve_export_btn > .icon {
+    width: 16px;
+    height: 16px;
+    filter: brightness(0) invert(1) !important;
+}
+
+.ve_secondary_btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    font-size: 12.5px !important;
+    font-weight: 500 !important;
+    padding-inline: 10px !important;
+}
+
+.ve_secondary_btn > .icon {
+    width: 15px;
+    height: 15px;
+}
+
+/* 中央视频预览舞台 */
+.ve_stage_wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 20px 10px;
+    background:
+        radial-gradient(
+            circle at 50% 45%,
+            color-mix(in srgb, var(--emphasis-color) 6%, transparent),
+            transparent 70%
+        ),
+        var(--bg);
+    overflow: hidden;
+}
+
+.ve_canvas_stage {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.ve_preview_canvas {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain;
+    border-radius: 10px;
+    box-shadow:
+        0 14px 36px rgba(2, 6, 23, 0.24),
+        0 0 0 1px var(--border-color);
+    background: #0b0f19;
+}
+
+/* 播放控制胶囊条 */
+.ve_transport_bar {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 12px 4px 6px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.ve_transport_bar .group {
+    border-radius: 999px;
+    outline: none;
+    background: transparent;
+    gap: 2px;
+}
+
+.ve_transport_bar button,
+.ve_transport_bar label {
+    border-radius: 999px !important;
+}
+
+.ve_timecode {
+    font-family: var(--monospace);
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
+    color: var(--font-color-l);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* 底部时间轴剪辑面板 */
+.ve_timeline_dock {
+    flex-shrink: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border-color);
+    padding: 10px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ve_timeline_topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--font-color-l);
+}
+
+.ve_timeline_legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ve_legend_item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+}
+
+.ve_legend_dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+}
+
+/* 全片缩略胶片条 */
+.ve_filmstrip {
+    height: 54px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0b0f19;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    position: relative;
+}
+
+.ve_filmstrip > div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ve_filmstrip > div:last-child {
+    border-right: none;
+}
+
+.ve_filmstrip canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* 轨道编辑区（左侧标签 + 右侧可缩放轨道） */
+.ve_tracks_shell {
+    display: flex;
+    align-items: stretch;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-2);
+    overflow: hidden;
+}
+
+.ve_track_labels {
+    width: 64px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-color);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    padding-top: 14px;
+}
+
+.ve_track_label_cell {
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--font-color-l);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.ve_tracks_scroll {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-right: calc(100% - 320px);
+}
+
+.ve_tracks_canvas {
+    position: relative;
+}
+
+.ve_ruler_bar {
+    height: 14px !important;
+    background: repeating-linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--font-color) 18%, transparent) 0px,
+        color-mix(in srgb, var(--font-color) 18%, transparent) 1px,
+        transparent 1px,
+        transparent 24px
+    );
+    border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer;
+}
+
+.ve_track_row {
+    height: 24px !important;
+    border-top: 1px solid var(--border-subtle);
+    transition: background-color 0.15s ease;
+}
+
+.ve_track_row:hover {
+    background-color: color-mix(in srgb, var(--font-color) 4%, transparent);
+}
+
+.ve_seg_clip {
+    background: linear-gradient(135deg, #8b5cf6, #6d28d9) !important;
+    box-shadow: 0 1px 4px rgba(109, 40, 217, 0.3);
+    border-radius: 5px !important;
+    cursor: pointer;
+}
+
+.ve_seg_speed {
+    background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+    box-shadow: 0 1px 4px rgba(37, 99, 235, 0.3);
+    border-radius: 5px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--monospace);
+    font-size: 11px !important;
+    font-weight: 600;
+    padding-inline: 4px;
+    overflow: hidden;
+}
+
+.ve_seg_event {
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    border-radius: 5px !important;
+}
+
+.ve_seg_remove {
+    background: repeating-linear-gradient(
+        -45deg,
+        rgba(239, 68, 68, 0.88),
+        rgba(239, 68, 68, 0.88) 5px,
+        rgba(185, 28, 28, 0.88) 5px,
+        rgba(185, 28, 28, 0.88) 10px
+    ) !important;
+    border-radius: 5px !important;
+}
+
+.ve_playhead {
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    width: 2px !important;
+    height: 100% !important;
+    background: #ef4444;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.65);
+    pointer-events: none;
+    z-index: 12;
+}
+
+.ve_playhead::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px 2px 50% 50%;
+    background: #ef4444;
+}
+
+/* 逐帧检视缩略图栏 */
+.ve_frame_strip {
+    height: 104px;
+    min-height: 104px;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.ve_frame_card {
+    border-radius: 8px;
+    padding: 4px 6px !important;
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    justify-content: space-between;
+    cursor: pointer;
+    overflow: hidden;
+    transition:
+        border-color 0.15s ease,
+        background-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.ve_frame_card:hover {
+    border-color: color-mix(in srgb, var(--emphasis-color) 45%, transparent);
+    background: var(--hover-color);
+}
+
+.ve_frame_card_active {
+    border: 1.5px solid var(--emphasis-color) !important;
+    background: var(--accent-soft) !important;
+    box-shadow: 0 2px 10px
+        color-mix(in srgb, var(--emphasis-color) 20%, transparent);
+}
+
+.ve_frame_card canvas {
+    max-width: 100%;
+    max-height: 72px;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain;
+    border-radius: 4px;
+    background: #0b0f19;
+}
+
+.ve_frame_meta {
+    font-size: 10.5px;
+    color: var(--font-color-l);
+    line-height: 1.2;
+}

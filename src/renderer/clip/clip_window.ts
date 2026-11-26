@@ -6335,11 +6335,27 @@ renderOn("clip_reset", () => {
 
 renderOn(
     "clip_init",
-    async ([_displays, imgBuffer, mainid, act, pid, _nativeWinRects]) => {
+    async ([
+        _displays,
+        imgBuffer,
+        mainid,
+        act,
+        pid,
+        _nativeWinRects,
+        cursorPoint,
+    ]) => {
         document.documentElement.style.display = "";
         document.body.style.opacity = "0";
+        toolBar.style.transition = "none";
+        drawBar.style.transition = "none";
         lastMouseBarX = -1;
         lastMouseBarY = -1;
+        if (cursorPoint) {
+            nowMouseE = new MouseEvent("mousemove", {
+                clientX: cursorPoint.x,
+                clientY: cursorPoint.y,
+            });
+        }
         resetClipSession();
         currentDisplays = _displays;
         mainPid = pid ?? 0;
@@ -6463,20 +6479,45 @@ renderOn(
             showBars(true);
         }
 
-        document.body.style.opacity = "";
-
-        renderSend("clip_show", []);
-
         setDefaultAction(act);
-
         getWin();
-
         drawClipRect();
-        setTimeout(() => {
-            whBar(finalRect);
-        }, 0);
+        whBar(finalRect);
         rightKey = false;
         changeRightBar(false);
+
+        if (cursorPoint) {
+            const d = 16;
+            const sw = window.innerWidth;
+            const sh = window.innerHeight;
+            let mx = Math.round(cursorPoint.x + d);
+            let my = Math.round(cursorPoint.y + d);
+            if (mx > sw - mouseBarW - d && my > sh - mouseBarH - d) {
+                mx = mx - mouseBarW - d - d;
+                my = my - mouseBarH - d - d;
+            } else {
+                if (mx > sw - mouseBarW - d) mx = sw - mouseBarW - d;
+                if (my > sh - mouseBarH - d) my = sh - mouseBarH - d;
+            }
+            mouseBarX = mx;
+            mouseBarY = my;
+            mouseBarEl.style({ transform: `translate(${mx}px, ${my}px)` });
+            const srcPt = e2srcPoint(nowMouseE);
+            mouseBar(finalRect, srcPt);
+            if (!rectSelect) {
+                inEdge(src2pXYdb(srcPt));
+            }
+        }
+
+        document.body.style.opacity = "";
+        await new Promise<void>((resolveFrame) => {
+            requestAnimationFrame(() => resolveFrame());
+        });
+        renderSend("clip_show", []);
+        requestAnimationFrame(() => {
+            toolBar.style.transition = "";
+            drawBar.style.transition = "";
+        });
     },
 );
 

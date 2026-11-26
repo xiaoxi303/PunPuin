@@ -1427,6 +1427,9 @@ function createClipWindow() {
         fullscreenable: true,
         transparent: true,
         frame: false,
+        thickFrame: false,
+        roundedCorners: false,
+        hiddenInMissionControl: true,
         resizable: process.platform === "linux",
         skipTaskbar: true,
         autoHideMenuBar: true,
@@ -1988,8 +1991,7 @@ mainOn("clip_save", async ([type]) => {
             body: t("用户已取消保存"),
             icon: notifyIcon,
         }).show();
-        clipWindow?.show();
-        clipWindow?.setSimpleFullScreen(true);
+        await fullScreen();
     }
     return x.filePath;
 });
@@ -2010,8 +2012,7 @@ mainOn("clip_mac_app", async () => {
         defaultPath: "/Applications",
     });
     if (x.canceled) {
-        clipWindow?.show();
-        clipWindow?.setSimpleFullScreen(true);
+        await fullScreen();
     }
     return { canceled: x.canceled, filePaths: x.filePaths };
 });
@@ -2057,15 +2058,25 @@ async function fullScreen(displayId?: number) {
         screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const win = await getClipWin();
     win.webContents.setZoomFactor(1.0);
-    win.setBounds({
-        x: nearestScreen.bounds.x,
-        y: nearestScreen.bounds.y,
-        width: nearestScreen.bounds.width,
-        height: nearestScreen.bounds.height,
-    });
+    const b = win.getBounds();
+    if (
+        b.x !== nearestScreen.bounds.x ||
+        b.y !== nearestScreen.bounds.y ||
+        b.width !== nearestScreen.bounds.width ||
+        b.height !== nearestScreen.bounds.height
+    ) {
+        win.setBounds({
+            x: nearestScreen.bounds.x,
+            y: nearestScreen.bounds.y,
+            width: nearestScreen.bounds.width,
+            height: nearestScreen.bounds.height,
+        });
+    }
     if (!dev) win.setAlwaysOnTop(true, "screen-saver");
+    if (process.platform !== "win32") {
+        win.setSimpleFullScreen(true);
+    }
     win.show();
-    win.setSimpleFullScreen(true);
     win.moveTop();
     win.focus();
     win.webContents.focus();
@@ -2206,17 +2217,32 @@ function queryWin32Rects(skipPid: number): Promise<NativeWinRect[]> {
 }
 
 async function sendCaptureEvent(data?: Buffer, type?: 功能) {
+    const cursorAbs = screen.getCursorScreenPoint();
+    const targetDisplay = screen.getDisplayNearestPoint(cursorAbs);
     const [win, nativeWinRects] = await Promise.all([
         getClipWin(),
         data ? Promise.resolve(undefined) : queryWin32Rects(process.pid),
     ]);
+    win.webContents.setZoomFactor(1.0);
+    if (!win.isVisible()) {
+        win.setBounds({
+            x: targetDisplay.bounds.x,
+            y: targetDisplay.bounds.y,
+            width: targetDisplay.bounds.width,
+            height: targetDisplay.bounds.height,
+        });
+    }
     mainSend(win.webContents, "clip_init", [
         screen.getAllDisplays(),
         data,
-        screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id,
+        targetDisplay.id,
         type,
         process.pid,
         nativeWinRects,
+        {
+            x: cursorAbs.x - targetDisplay.bounds.x,
+            y: cursorAbs.y - targetDisplay.bounds.y,
+        },
     ]);
 }
 
@@ -2225,7 +2251,12 @@ function exitFullScreen() {
     closeLongControl();
     if (keepClip) {
         if (isClipWinHealthy(clipWindow)) {
-            clipWindow.setSimpleFullScreen(false);
+            if (
+                process.platform !== "win32" &&
+                clipWindow.isSimpleFullScreen()
+            ) {
+                clipWindow.setSimpleFullScreen(false);
+            }
             clipWindow.hide();
             mainSend(clipWindow.webContents, "clip_reset", []);
         } else {
@@ -2239,7 +2270,13 @@ function exitFullScreen() {
 
 /** 隐藏截屏窗口 */
 function hideClip() {
-    clipWindow?.setSimpleFullScreen(false);
+    if (
+        clipWindow &&
+        process.platform !== "win32" &&
+        clipWindow.isSimpleFullScreen()
+    ) {
+        clipWindow.setSimpleFullScreen(false);
+    }
     clipWindow?.hide();
 }
 
@@ -2307,35 +2344,94 @@ function lianPai(d = store.get("连拍.间隔"), maxN = store.get("连拍.数"))
 let _recorder: BrowserWindow;
 let _recorderTipWin: BrowserWindow;
 
-/** 录屏提示覆盖层：框选区域的虚线、键盘鼠标提示、摄像头、悬浮控制条 */
+/** 录屏提示覆盖层：框选区域的高亮外框、键盘鼠标提示、摄像头画中画、悬浮控制胶囊 */
 function createRecorderTipWindow(
     rect0: [number, number, number, number],
     ratio: number,
     displayId: string,
 ) {
-    const border = 2;
-    const display = screen
-        .getAllDisplays()
-        .find((d) => String(d.id) === displayId);
+    const framePad = 3;
+    const hudBarHeight = 46;
+    const hudGap = 8;
+    const hudMinWidth = 316;
+    const display =
+        screen.getAllDisplays().find((d) => String(d.id) === displayId) ??
+        screen.getPrimaryDisplay();
+    const disp = display.bounds;
     const rect1 = rect0.map((v) => Math.round(v / ratio));
+    const rectAbsX = disp.x + rect1[0];
+    const rectAbsY = disp.y + rect1[1];
+    const rw = Math.max(16, rect1[2]);
+    const rh = Math.max(16, rect1[3]);
+    const outerFrameW = rw + framePad * 2;
+    const outerFrameH = rh + framePad * 2;
+
+    const spaceBottom = disp.y + disp.height - (rectAbsY + rh + framePad);
+    const spaceTop = rectAbsY - framePad - disp.y;
+    const hudPlace: "bottom" | "top" | "inside" =
+        spaceBottom >= hudBarHeight + hudGap
+            ? "bottom"
+            : spaceTop >= hudBarHeight + hudGap
+              ? "top"
+              : "inside";
+
+    let winW = Math.max(outerFrameW, hudMinWidth);
+    let winX = rectAbsX - framePad + outerFrameW - winW;
+    if (winX < disp.x) winX = disp.x;
+    if (winX > rectAbsX - framePad) winX = rectAbsX - framePad;
+    winW = Math.max(winW, rectAbsX - framePad + outerFrameW - winX);
+    const frameLeft = rectAbsX - framePad - winX;
+
+    let winY = rectAbsY - framePad;
+    let winH = outerFrameH;
+    let frameTop = 0;
+    if (hudPlace === "bottom") {
+        winY = rectAbsY - framePad;
+        winH = outerFrameH + hudGap + hudBarHeight;
+        frameTop = 0;
+    } else if (hudPlace === "top") {
+        winY = rectAbsY - framePad - hudGap - hudBarHeight;
+        winH = outerFrameH + hudGap + hudBarHeight;
+        frameTop = hudBarHeight + hudGap;
+    } else {
+        winY = Math.max(disp.y, rectAbsY - framePad);
+        frameTop = rectAbsY - framePad - winY;
+        winH = Math.min(disp.y + disp.height - winY, frameTop + outerFrameH);
+    }
+
     const recorderTipWin = new BrowserWindow({
-        x: (display?.bounds.x ?? 0) + rect1[0] - border,
-        y: (display?.bounds.y ?? 0) + rect1[1] - border,
-        width: rect1[2] + border * 2,
-        height: rect1[3] + border * 2 + 24,
+        x: Math.round(winX),
+        y: Math.round(winY),
+        width: Math.max(64, Math.round(winW)),
+        height: Math.max(64, Math.round(winH)),
         transparent: true,
         frame: false,
+        thickFrame: false,
+        roundedCorners: false,
+        hasShadow: false,
+        skipTaskbar: true,
+        focusable: false,
+        enableLargerThanScreen: true,
         autoHideMenuBar: true,
         resizable: process.platform === "linux",
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
             sandbox: false,
+            backgroundThrottling: false,
         },
     });
     _recorderTipWin = recorderTipWin;
     rendererPath(recorderTipWin, "recorderTip.html", {
-        query: { nopause: "1" },
+        query: {
+            hud: hudPlace,
+            fl: String(Math.round(frameLeft)),
+            ft: String(Math.round(frameTop)),
+            fw: String(Math.round(outerFrameW)),
+            fh: String(Math.round(outerFrameH)),
+            pw: String(Math.round(rect0[2])),
+            ph: String(Math.round(rect0[3])),
+        },
     });
     if (dev) recorderTipWin.webContents.openDevTools();
 
@@ -2366,8 +2462,16 @@ mainOnReflect("recordState", () => {
 });
 
 function createSuperRecorderWindow(fixed?: RecordRect) {
-    const recorder = new BrowserWindow(baseWinConfig());
-    recorder.minimize();
+    const baseCfg = baseWinConfig();
+    const recorder = new BrowserWindow({
+        ...baseCfg,
+        show: !fixed,
+        webPreferences: {
+            ...baseCfg.webPreferences,
+            backgroundThrottling: false,
+        },
+    });
+    if (!fixed) recorder.minimize();
     rendererPath(recorder, "videoEditor.html");
     if (dev) recorder.webContents.openDevTools();
     if (fixed) {
@@ -3748,7 +3852,12 @@ mainOn("windowClose", (_, e) => {
     BrowserWindow.fromWebContents(e.sender)?.close();
 });
 mainOn("windowMax", (_, e) => {
-    BrowserWindow.fromWebContents(e.sender)?.maximize();
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.show();
+    win.maximize();
+    win.focus();
 });
 mainOn("windowTop", ([top], e) => {
     BrowserWindow.fromWebContents(e.sender)?.setAlwaysOnTop(top);

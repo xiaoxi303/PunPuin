@@ -384,6 +384,7 @@ const defaultSetting: setting = {
         记忆: { 开启: false, rects: {} },
         颜色: {
             遮罩: "#0008",
+            边框: "#2563EB",
             光标参考线: "#00f",
             选区参考线: "#1115",
         },

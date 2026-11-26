@@ -1997,26 +1997,25 @@ async function showNowFrames(
         if (!exist) {
             // 先同步建好格子（含标题与点击），帧解码完成后再填充画面
             const cellEl = view("y")
+                .class("ve_frame_card")
                 .style({
                     width: `calc(100% / ${showHalf * 2 + 1})`,
                     order: i,
-                    padding: "4px",
                     alignItems: "center",
                 })
                 .data({ i: String(i) });
             if (inRange) {
                 const srcId = trans2src(id) ?? defaultSrcId;
-                const canvasEl = ele("canvas")
-                    .attr({
-                        width: tW,
-                        height: tH,
-                    })
-                    .style({ width: "fit-content", overflow: "hidden" });
+                const canvasEl = ele("canvas").attr({
+                    width: tW,
+                    height: tH,
+                });
                 cellEl
                     .add([
                         canvasEl,
                         view("x")
-                            .style({ gap: "1em", width: "100%" })
+                            .class("ve_frame_meta")
+                            .style({ gap: "0.6em", width: "100%" })
                             .add([
                                 timeEl().sv(transformCs.getTime(id)),
                                 spacer(),
@@ -2024,7 +2023,7 @@ async function showNowFrames(
                                 String(srcId) !== String(id)
                                     ? monoTxt(String(srcId))
                                     : null,
-                                monoTxt(String(id)),
+                                monoTxt(`#${id}`),
                             ]),
                     ])
                     .on("click", () => {
@@ -2263,17 +2262,26 @@ function editClip(i: number) {
                 position: "relative",
                 overflow: "hidden",
                 maxWidth: "100%",
-                maxHeight: "100%",
+                maxHeight: "calc(100% - 46px)",
+                borderRadius: "10px",
+                boxShadow: "var(--shadow-lg)",
             })
             .add([clipCanvas, clipControl]),
-        view("x").add([
-            clipMoveLast,
-            clipMoveNext,
-            clipRemove,
-            clipTransition,
-            clipSave,
-            clipGiveUp,
-        ]),
+        view("x")
+            .style({
+                gap: "8px",
+                paddingTop: "8px",
+                alignItems: "center",
+                justifyContent: "center",
+            })
+            .add([
+                clipMoveLast,
+                clipMoveNext,
+                clipRemove,
+                clipTransition,
+                clipSave,
+                clipGiveUp,
+            ]),
     ]);
 
     canvasView.sv("clip");
@@ -3031,13 +3039,35 @@ function timeEl() {
     });
 }
 
+let isNormalMode = false;
+let isRecordPaused = false;
+let showAdvancedTracksInNormal = false;
+let setRecordPausedFn: ((paused: boolean) => void) | null = null;
+
 renderOn("superRecorderInit", ([sourceId, fixed]) => {
-    if (fixed) setTitle(t("普通录屏"));
+    isNormalMode = Boolean(fixed);
+    const modeText = fixed ? t("普通录屏") : t("超级录屏");
+    setTitle(modeText);
+    modeBadgeTextEl.sv(modeText);
+    recCardModeTextEl.sv(
+        fixed
+            ? `${t("普通录屏")} · ${Math.round(fixed.rect[2])}×${Math.round(fixed.rect[3])}`
+            : t("超级录屏"),
+    );
+    syncTrackModeVisibility();
     initPromise.resolve({ sourceId, fixed });
 });
 
-renderOn("recordState", () => {
-    stopRecord();
+renderOn("recordState", ([state]) => {
+    if (state === "stop") {
+        stopRecord();
+    } else if (state === "cancel") {
+        stopRecord(true);
+    } else if (state === "pause") {
+        setRecordPausedFn?.(true);
+    } else if (state === "resume") {
+        setRecordPausedFn?.(false);
+    }
 });
 
 const history = new xhistory<uiData>([], {
@@ -3180,42 +3210,24 @@ const drawPlayFrame = (frame: VideoFrame) => {
         );
 };
 
-const stopPEl = view("y")
-    .style({
-        width: "100vw",
-        height: "100vh",
-        backgroundColor: cssColor.bg,
-        position: "fixed",
-        top: 0,
-        left: 0,
-        zIndex: 9,
-        justifyContent: "center",
-        alignItems: "center",
-    })
-    .class(Class.gap)
-    .addInto();
-view()
-    .style({ width: "80px", height: "80px" })
-    .add(iconEl("stop_record").style({ filter: "none" }))
-    .addInto(stopPEl)
-    .on("click", () => {
-        stopRecord();
-    });
-
-// 录制面板：音频输入控制与音量电平
-const audioLevelInEl = view().style({
-    width: "0%",
-    height: "100%",
-    backgroundColor: cssColor.main,
+// 录制中全屏控制卡片
+const recStatusTextEl = txt(t("正在录制"));
+const recStatusPillEl = view("x")
+    .class("ve_rec_status_pill")
+    .add([view().class("ve_rec_dot"), recStatusTextEl]);
+const recCardModeTextEl = txt(t("超级录屏")).style({
+    fontSize: "13px",
+    color: "var(--font-color-l)",
 });
-const audioLevelEl = view()
-    .style({ width: "120px", height: "8px", overflow: "hidden" })
-    .class(Class.deco)
-    .add(audioLevelInEl);
+
+const audioLevelInEl = view().class("ve_audio_meter_fill").style({
+    width: "0%",
+});
+const audioLevelEl = view().class("ve_audio_meter").add(audioLevelInEl);
 let lastLevelT = 0;
 audioCapture.onLevel((level) => {
     const now = performance.now();
-    if (now - lastLevelT < 100) return;
+    if (now - lastLevelT < 80) return;
     lastLevelT = now;
     audioLevelInEl.style({ width: `${Math.min(1, level * 4) * 100}%` });
 });
@@ -3224,16 +3236,13 @@ function saveAudioNames() {
     store.set("录屏.音频.设备列表", audioCapture.activeIds());
 }
 
-const audioListEl = view("y")
-    .style({
-        display: "none",
-        maxHeight: "30vh",
-        overflowY: "auto",
-        minWidth: "200px",
-        maxWidth: "60vw",
-        padding: cssVar("o-padding"),
-    })
-    .class(Class.deco);
+const audioListEl = view("y").style({
+    display: "none",
+    maxHeight: "24vh",
+    overflowY: "auto",
+    gap: "4px",
+    paddingTop: "4px",
+});
 
 async function renderAudioList() {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -3280,40 +3289,364 @@ async function renderAudioList() {
 }
 
 let audioListShow = false;
-const audioBtn = iconBEl("mic", "选择输入音频").on("click", () => {
+const audioBtn = iconBEl("mic", t("选择输入音频")).on("click", () => {
     audioListShow = !audioListShow;
     audioListEl.style({ display: audioListShow ? "flex" : "none" });
     if (audioListShow) renderAudioList();
 });
 
-stopPEl.add(
-    view("y")
-        .class(Class.gap)
-        .style({ alignItems: "center" })
-        .add([
-            view("x")
-                .class(Class.gap)
-                .style({ alignItems: "center" })
-                .add([audioBtn, audioLevelEl]),
-            audioListEl,
-        ]),
+const recPauseIconEl = iconEl("pause");
+const recPauseBtnLabelEl = txt(t("暂停录制"));
+const recPauseBtn = button()
+    .class("ve_secondary_btn")
+    .add([recPauseIconEl, recPauseBtnLabelEl])
+    .on("click", () => {
+        setRecordPausedFn?.(!isRecordPaused);
+    });
+
+function syncRecOverlayPauseUi(paused: boolean) {
+    recStatusPillEl.data({ paused: paused ? "true" : "false" });
+    recStatusTextEl.sv(paused ? t("已暂停") : t("正在录制"));
+    recPauseIconEl.el.src = getImgUrl(`${paused ? "recume" : "pause"}.svg`);
+    recPauseBtnLabelEl.sv(paused ? t("继续录制") : t("暂停录制"));
+}
+
+const recCardSlotTimeEl = view();
+const recCardActionsEl = view("x")
+    .class("ve_rec_actions")
+    .add([
+        recPauseBtn,
+        button()
+            .class("ve_btn_stop_primary")
+            .add([
+                view().style({
+                    width: "10px",
+                    height: "10px",
+                    borderRadius: "2px",
+                    background: "#fff",
+                }),
+                txt(t("结束录制并编辑")),
+            ])
+            .on("click", () => stopRecord()),
+    ]);
+
+const stopPEl = view("y")
+    .class("ve_recording_overlay")
+    .add(
+        view("y")
+            .class("ve_recording_card")
+            .add([
+                view("x")
+                    .style({
+                        width: "100%",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                    })
+                    .add([recStatusPillEl, recCardModeTextEl]),
+                recCardSlotTimeEl,
+                view("y")
+                    .class("ve_audio_box")
+                    .add([
+                        view("x")
+                            .style({ alignItems: "center", gap: "10px" })
+                            .add([audioBtn, audioLevelEl]),
+                        audioListEl,
+                    ]),
+                recCardActionsEl,
+            ]),
+    )
+    .addInto();
+
+// 顶部工作台工具栏
+const modeBadgeTextEl = txt(t("超级录屏"));
+const modeBadgeEl = view("x")
+    .class("ve_mode_badge")
+    .add([view().class("ve_mode_badge_dot"), modeBadgeTextEl]);
+
+const progressEl = () => {
+    const el = view("x").class("ve_progress_pill").data({ done: "true" });
+    const p = view().class("ve_progress_track");
+    const pi = view().addInto(p).class("ve_progress_fill").style({
+        width: "100%",
+    });
+    const pctTxt = monoTxt(t("就绪"));
+
+    return el.add([p, pctTxt]).bindSet((progress: number) => {
+        const clamped = Math.max(0, Math.min(1, progress));
+        const done = clamped >= 0.999;
+        el.data({ done: done ? "true" : "false" });
+        pi.style({ width: `${(clamped * 100).toFixed(1)}%` });
+        pctTxt.sv(done ? t("就绪") : `${(clamped * 100).toFixed(0)}%`);
+    });
+};
+
+const transformProgressEl = progressEl();
+const transformTimeEl = txt().style({
+    fontSize: "11.5px",
+    color: "var(--font-color-l)",
+    whiteSpace: "nowrap",
+});
+
+const transformCodec = monoTxt()
+    .class("ve_codec_chip")
+    .bindSet((x: [string, boolean, boolean], el) => {
+        let c = t("未知编码");
+        for (const [k, v] of codecMap.entries()) {
+            if (v.codec === x[0]) {
+                c = k;
+                break;
+            }
+        }
+        el.innerText = `${c.toUpperCase()} · ${x[2] ? t("硬编") : t("软编")}`;
+        el.setAttribute(
+            "title",
+            `${x[0]} (${x[1] ? t("硬解") : t("软解")} / ${x[2] ? t("硬编") : t("软编")})`,
+        );
+        el.onclick = () => {
+            navigator.clipboard.writeText(x[0]);
+        };
+    })
+    .sv([codec, isDeAcc, isEnAcc]);
+
+const actionUndo = iconBEl("left", t("撤回")).on("click", async () => {
+    history.undo();
+    renderUiData(history.getData());
+    const p = transform();
+    runAfterTrans();
+    await p;
+});
+const actionList = dynamicSelect();
+actionList.el.on("change", async () => {
+    history.jump(Number(actionList.el.gv));
+    renderUiData(history.getData());
+    const p = transform();
+    runAfterTrans();
+    await p;
+});
+const actionUnundo = iconBEl("right", t("重做")).on("click", async () => {
+    history.unundo();
+    renderUiData(history.getData());
+    const p = transform();
+    runAfterTrans();
+    await p;
+});
+
+history.on("change", () => {
+    actionList.setList(
+        history.list.map((h, i) => ({ value: String(i), name: h })),
+    );
+    actionList.el.sv(String(history.index));
+});
+
+const exportConfigEls = {
+    gif: (() => {
+        const el = view("x").style({ paddingInline: "6px" });
+        const dither = label([check("dither"), t("平滑颜色")]).style({
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            fontSize: "12.5px",
+        });
+        el.add(dither);
+        return el
+            .bindGet(() => ({
+                dither: dither.gv,
+            }))
+            .bindSet((v: { dither: boolean }) => {
+                dither.sv(v.dither);
+            });
+    })(),
+    apng: view(),
+    webp: view(),
+    avif: view(),
+    mp4: (() => {
+        const el = view("x").style({ paddingInline: "6px" });
+        const codecSel = label(
+            [
+                select([
+                    { value: "avc", name: "H.264" },
+                    { value: "vp9", name: "VP9" },
+                    { value: "av1", name: "AV1" },
+                ] as const).class(Class.noDeco),
+                t("编码"),
+            ],
+            1,
+        )
+            .style({
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                fontSize: "12.5px",
+            })
+            // @ts-ignore
+            .sv(baseCodec);
+        el.add(codecSel);
+        return el
+            .bindGet(() => ({
+                codec: codecSel.gv,
+            }))
+            .bindSet((v: { codec: "vp9" | "avc" | "av1" }) => {
+                codecSel.sv(v.codec);
+            });
+    })(),
+    webm: (() => {
+        const el = view("x").style({ paddingInline: "6px" });
+        const codecSel = label(
+            [
+                select([
+                    { value: "vp8", name: "VP8" },
+                    { value: "vp9", name: "VP9" },
+                    { value: "av1", name: "AV1" },
+                ] as const).class(Class.noDeco),
+                t("编码"),
+            ],
+            1,
+        )
+            .style({
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                fontSize: "12.5px",
+            })
+            // @ts-ignore
+            .sv(baseCodec);
+        el.add(codecSel);
+        return el
+            .bindGet(() => ({
+                codec: codecSel.gv,
+            }))
+            .bindSet((v: { codec: "vp8" | "vp9" | "av1" }) => {
+                codecSel.sv(v.codec);
+            });
+    })(),
+    png: view("x"),
+} satisfies Record<(typeof outputType)[number]["type"], ElType<HTMLElement>>;
+
+const exportPx = dynamicSelect();
+
+/** AV1 编码不可用时隐藏 avif */
+const exportTypes = outputType.filter(
+    (tItem) => tItem.type !== "avif" || codecMap.has("av1"),
 );
 
-const canvasEl = ele("canvas").style({
-    overflow: "hidden",
-    width: "fit-content",
+const exportTypeDisplayNames: Record<string, string> = {
+    gif: "GIF",
+    mp4: "MP4",
+    webm: "WebM",
+    webp: "WebP",
+    apng: "APNG",
+    avif: "AVIF",
+    png: "PNG",
+};
+
+const exportEls = {
+    type: select(
+        exportTypes.map((tItem) => ({
+            value: tItem.type,
+            name:
+                exportTypeDisplayNames[tItem.type] ?? tItem.name.toUpperCase(),
+        })),
+    ).on("change", (_, el) => {
+        const type = el.gv;
+        store.set("录屏.超级录屏.格式", type);
+        const config = exportConfigEls[type];
+        exportEls.exportConfig.clear().add(config);
+        exportEls.exportConfig.style({
+            display: config.el.childElementCount > 0 ? "flex" : "none",
+        });
+    }),
+    exportConfig: view("x").class(Class.deco).style({ alignItems: "center" }),
+};
+
+const editClipFrameBtn = button()
+    .class("ve_secondary_btn")
+    .attr({ title: t("当前帧精修") })
+    .add([iconEl("draw"), txt(t("当前帧精修"))])
+    .on("click", async () => {
+        const fCanvas = await fetchFrame(mainFrameGet, willPlayI);
+        if (!fCanvas) return;
+        fCanvas.convertToBlob({ type: "image/png" }).then(async (blob) => {
+            const buffer = Buffer.from(await blob.arrayBuffer());
+            renderSend("edit_pic", [buffer]);
+        });
+    });
+
+const editSrcFrameBtn = button(t("编辑原图"))
+    .class("ve_secondary_btn")
+    .on("click", async () => {
+        const fCanvas = await clipFrameGet.getFrame(trans2src(willPlayI));
+        if (!fCanvas) return;
+        fCanvas.convertToBlob({ type: "image/png" }).then(async (blob) => {
+            const buffer = Buffer.from(await blob.arrayBuffer());
+            renderSend("edit_pic", [buffer]);
+        });
+    });
+
+const exportSaveBtn = button()
+    .class("ve_export_btn")
+    .add([iconEl("save"), txt(t("导出保存"))])
+    .on("click", save);
+
+const savedExportType = store.get("录屏.超级录屏.格式");
+const initExportType = exportTypes.some(
+    (tItem) => tItem.type === savedExportType,
+)
+    ? (savedExportType as (typeof outputType)[number]["type"])
+    : "gif";
+// @ts-ignore
+exportEls.type.sv(initExportType);
+const exconfig = exportConfigEls[exportEls.type.gv];
+exportEls.exportConfig.clear().add(exconfig);
+exportEls.exportConfig.style({
+    display: exconfig.el.childElementCount > 0 ? "flex" : "none",
 });
+
+const transformLogEl = view("x")
+    .style({ gap: "8px", alignItems: "center" })
+    .add([
+        view("x")
+            .add([actionUndo, actionList.el, actionUnundo])
+            .class(Class.group),
+        transformProgressEl,
+        transformTimeEl,
+    ]);
+
+const exportEl = frame("export", {
+    _: view("x").style({ gap: "8px", alignItems: "center" }),
+    editClip: editClipFrameBtn,
+    editSrc: editSrcFrameBtn,
+    exportConfig: exportEls.exportConfig,
+    type: exportEls.type,
+    export: exportSaveBtn,
+});
+
+view("x")
+    .class("ve_studio_header")
+    .add([
+        modeBadgeEl,
+        exportPx.el,
+        transformCodec,
+        transformLogEl,
+        spacer(),
+        exportEl.el,
+    ])
+    .addInto();
+
+// 中央视频预览舞台 + 播放控制条
+const canvasEl = ele("canvas").class("ve_preview_canvas");
 const canvas = canvasEl.el;
 
 const clipEditor = view("y").style({
     alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    height: "100%",
     overflow: "hidden",
 });
 
 const canvasView = view("y")
-    .style({ flexGrow: 1, overflow: "hidden", alignItems: "center" })
+    .class("ve_canvas_stage")
     .add([canvasEl, clipEditor])
-    .addInto()
     .bindSet((type: "play" | "clip") => {
         if (type === "play") {
             canvasEl.style({ display: "block" });
@@ -3325,25 +3658,18 @@ const canvasView = view("y")
     })
     .sv("play");
 
-const actionsEl = view("x")
-    .style({ justifyContent: "center", alignItems: "center" })
-    .addInto();
 const playEl = check("", [
     iconEl("pause").style({ display: "block" }),
     iconEl("recume").style({ display: "block" }),
 ]).on("input", async () => {
     if (playEl.gv) {
-        // 启动/加入编辑处理但不等待完成——编辑期间脏区外即可播放
         transform();
-        // afterTrans 可能正在对齐播放头，等它完成（快速，不等脏帧内容）
         await afterTransTask;
         if (isDirty(willPlayI)) {
-            // 起播点在编辑脏区：先不播放，处理到该帧后可再播
             playEl.sv(false);
             return;
         }
         isPlaying = true;
-        // 开启输出直通绘制（pause/playEnd 会关闭，防止迟到输出覆盖静止帧）
         playFrameGet.setSink(drawPlayFrame);
         if (playI === transformCs.length - 1) {
             playI = 0 as TransId;
@@ -3360,22 +3686,22 @@ const playEl = check("", [
     }
 });
 
-const lastFrame = iconBEl("last", "上一帧").on("click", (e) => {
+const lastFrame = iconBEl("last", t("上一帧")).on("click", (e) => {
     const x = e.shiftKey ? 100 : e.ctrlKey ? 10 : 1;
     const id = Math.max(willPlayI - x, 0) as TransId;
     jump2idUi(trans2src(id));
 });
-const nextFrame = iconBEl("next", "下一帧").on("click", (e) => {
+const nextFrame = iconBEl("next", t("下一帧")).on("click", (e) => {
     const x = e.shiftKey ? 100 : e.ctrlKey ? 10 : 1;
     const id = Math.min(willPlayI + x, transformCs.length - 1) as TransId;
     jump2idUi(trans2src(id));
 });
-const lastKey = iconBEl("last_last", "上一秒").on("click", (e) => {
+const lastKey = iconBEl("last_last", t("上一秒")).on("click", (e) => {
     const x = e.shiftKey ? 60 : e.ctrlKey ? 10 : 1;
     const id = Math.max(willPlayI - srcRate * x, 0) as TransId;
     jump2idUi(trans2src(id));
 });
-const nextKey = iconBEl("next_next", "下一秒").on("click", (e) => {
+const nextKey = iconBEl("next_next", t("下一秒")).on("click", (e) => {
     const x = e.shiftKey ? 60 : e.ctrlKey ? 10 : 1;
     const id = Math.min(
         willPlayI + srcRate * x,
@@ -3385,124 +3711,77 @@ const nextKey = iconBEl("next_next", "下一秒").on("click", (e) => {
 });
 
 const nowTimeEl = (total?: () => number) => {
-    const el = view("x");
-    const t = timeEl().sv(0);
+    const el = view("x").class("ve_timecode");
+    const curEl = timeEl().sv(0);
     const all = timeEl().sv(0);
     let tt = 0;
-    return el.add(total ? [t, "/", all] : t).bindSet((time: number | null) => {
-        const nt = time ?? tt;
-        tt = nt;
-        t.sv(nt);
-        if (total) all.sv(total());
-    });
+    return el
+        .add(total ? [curEl, "/", all] : curEl)
+        .bindSet((time: number | null) => {
+            const nt = time ?? tt;
+            tt = nt;
+            curEl.sv(nt);
+            if (total) all.sv(total());
+        });
 };
 
 const playTimeEl = nowTimeEl(() => {
     return transformCs.getDuration() || srcCs.getDuration();
 });
 
-actionsEl.add([
-    view()
-        .class(Class.group)
-        .add([lastKey, lastFrame, playEl, nextFrame, nextKey]),
-    playTimeEl,
-]);
-
-const transformLogEl = view("x").addInto();
-
-const progressEl = () => {
-    const el = view("x");
-    const p = view()
-        .style({
-            width: "200px",
-            height: "20px",
-            overflow: "hidden",
-        })
-        .class(Class.deco);
-    const pi = view().addInto(p).style({
-        width: "0%",
-        height: "100%",
-        backgroundColor: cssColor.main,
-        borderRadius: "inherit",
-    });
-    const t = monoTxt();
-
-    return el.add([p, t]).bindSet((progress: number) => {
-        pi.style({ width: `${progress * 100}%` });
-        t.sv(`${(progress * 100).toFixed(2)}%`);
-    });
-};
-
-const transformProgressEl = progressEl();
-
-const transformTimeEl = txt();
-
-const transformCodec = monoTxt()
-    .bindSet((x: [string, boolean, boolean], el) => {
-        let c = t("未知编码");
-        for (const [k, v] of codecMap.entries()) {
-            if (v.codec === x[0]) {
-                c = k;
-                break;
-            }
-        }
-        el.innerText = c;
-        el.setAttribute(
-            "data-title",
-            `${x[0]} ${x[1] ? t("硬解") : t("软解")} ${x[2] ? t("硬编") : t("软编")}`,
-        );
-        el.onclick = () => {
-            navigator.clipboard.writeText(x[0]);
-        };
-    })
-    .sv([codec, isDeAcc, isEnAcc]);
-
-const actionUndo = iconBEl("left", "撤回").on("click", async () => {
-    history.undo();
-    renderUiData(history.getData());
-    // 启动编辑并立即刷新预览（脏帧自动等待处理完成），不阻塞交互
-    const p = transform();
-    runAfterTrans();
-    await p;
-});
-const actionList = dynamicSelect();
-actionList.el.on("change", async () => {
-    history.jump(Number(actionList.el.gv));
-    renderUiData(history.getData());
-    const p = transform();
-    runAfterTrans();
-    await p;
-});
-const actionUnundo = iconBEl("right", "重做").on("click", async () => {
-    history.unundo();
-    renderUiData(history.getData());
-    const p = transform();
-    runAfterTrans();
-    await p;
-});
-
-history.on("change", () => {
-    console.log("h", history.getData());
-    actionList.setList(
-        history.list.map((h, i) => ({ value: String(i), name: h })),
-    );
-    actionList.el.sv(String(history.index));
-});
-
-transformLogEl
-    .style({ gap: "4px", alignItems: "center", padding: "var(--o-padding)" })
+const actionsEl = view("x")
+    .class("ve_transport_bar")
     .add([
+        view()
+            .class(Class.group)
+            .add([lastKey, lastFrame, playEl, nextFrame, nextKey]),
+        playTimeEl,
+    ]);
+
+view("y").class("ve_stage_wrap").add([canvasView, actionsEl]).addInto();
+
+// 底部时间轴剪辑面板
+const advancedTrackToggleBtn = button(t("高级镜头"))
+    .class(Class.smallSize)
+    .style({ display: "none", fontSize: "11.5px" })
+    .on("click", () => {
+        showAdvancedTracksInNormal = !showAdvancedTracksInNormal;
+        syncTrackModeVisibility();
+    });
+
+const timelineTopBar = view("x")
+    .class("ve_timeline_topbar")
+    .add([
+        txt(
+            t(
+                "滚轮缩放时间轴 · Shift+滚轮平移 · 拖拽轨道标记变速或删减区间 · 右键片段删除",
+            ),
+        ),
         view("x")
-            .add([actionUndo, actionList.el, actionUnundo])
-            .class(Class.group),
-        transformProgressEl,
-        transformTimeEl,
-        transformCodec,
+            .class("ve_timeline_legend")
+            .add([
+                view("x")
+                    .class("ve_legend_item")
+                    .add([
+                        view()
+                            .class("ve_legend_dot")
+                            .style({ background: "#3b82f6" }),
+                        txt(t("变速")),
+                    ]),
+                view("x")
+                    .class("ve_legend_item")
+                    .add([
+                        view()
+                            .class("ve_legend_dot")
+                            .style({ background: "#ef4444" }),
+                        txt(t("删减")),
+                    ]),
+                advancedTrackToggleBtn,
+            ]),
     ]);
 
 const timeLineMain = view("x")
-    .style({ height: "80px" })
-    .addInto()
+    .class("ve_filmstrip")
     .on("click", (e) => {
         const p = e.offsetX / timeLineMain.el.offsetWidth;
         const id = transformCs.time2Id(
@@ -3511,13 +3790,25 @@ const timeLineMain = view("x")
         jump2idUi(trans2src(id) ?? defaultSrcId);
     });
 
+const trackLabelClip = view()
+    .class("ve_track_label_cell")
+    .add(txt(t("镜头")));
+const trackLabelSpeed = view()
+    .class("ve_track_label_cell")
+    .add(txt(t("变速")));
+const trackLabelEvent = view()
+    .class("ve_track_label_cell")
+    .add(txt(t("事件")));
+const trackLabelRemove = view()
+    .class("ve_track_label_cell")
+    .add(txt(t("删减")));
+
+const trackLabelsCol = view("y")
+    .class("ve_track_labels")
+    .add([trackLabelClip, trackLabelSpeed, trackLabelEvent, trackLabelRemove]);
+
 const timeLineControlP = view()
-    .style({
-        overflowX: "scroll",
-        flexShrink: 0,
-        paddingRight: "calc(100% - 300px)",
-    })
-    .addInto()
+    .class("ve_tracks_scroll")
     .attr({ title: "[Shift+滚轮] 移动\n[滚轮] 缩放" })
     .on("wheel", (e) => {
         e.preventDefault();
@@ -3533,21 +3824,22 @@ const timeLineControlP = view()
         timeLineControl.sv(nz);
     });
 const timeLineControl = view("y")
-    .style({ position: "relative" })
     .class(
+        "ve_tracks_canvas",
         addClass(
             {},
             {
                 "& > *": {
                     position: "relative",
                     width: "100%",
-                    height: "20px",
+                    height: "24px",
                 },
                 "& > * > *": {
                     position: "absolute",
-                    minWidth: "4px",
-                    height: "100%",
-                    borderRadius: "4px",
+                    minWidth: "6px",
+                    top: "2px",
+                    height: "calc(100% - 4px)",
+                    borderRadius: "5px",
                     color: "white",
                 },
             },
@@ -3555,30 +3847,24 @@ const timeLineControl = view("y")
     )
     .addInto(timeLineControlP)
     .bindSet((zoom: number) => {
-        const nz = Math.max(300 / listLength(), zoom);
+        const minW = Math.max(300, timeLineControlP.el.clientWidth || 300);
+        const nz = Math.max(minW / Math.max(1, listLength()), zoom);
         timeLineControl
-            .style({ width: `${nz * listLength()}px` })
+            .style({ width: `${nz * Math.max(1, listLength())}px` })
             .data({ zoom: String(nz) });
     })
     .bindGet((el) => {
         return Number(el.getAttribute("data-zoom"));
     });
 const timeLineControlPoint = view()
-    .style({
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "2px",
-        height: "100%",
-        backgroundColor: "red",
-        pointerEvents: "none",
-    })
+    .class("ve_playhead")
     .addInto(timeLineControl)
     .bindSet((i: SrcId, el) => {
-        el.style.left = `${(i / listLength()) * 100}%`;
+        el.style.left = `${(i / Math.max(1, listLength())) * 100}%`;
     });
 
 view()
+    .class("ve_ruler_bar")
     .addInto(timeLineControl)
     .on("click", (e) => {
         const p = e.offsetX / timeLineControl.el.offsetWidth;
@@ -3587,10 +3873,10 @@ view()
     });
 
 const timeLineClip = () => {
-    const el = view().addInto(timeLineControl);
+    const el = view().class("ve_track_row").addInto(timeLineControl);
 
     function ipx(n: number) {
-        return `${(n / listLength()) * 100}%`;
+        return `${(n / Math.max(1, listLength())) * 100}%`;
     }
 
     function render(data: uiData["clipList"]) {
@@ -3613,11 +3899,11 @@ const timeLineClip = () => {
                   );
             view()
                 .addInto(el)
-                .attr({ title: "点击编辑" })
+                .class("ve_seg_clip")
+                .attr({ title: t("点击编辑") })
                 .style({
                     left: ipx(beforeId),
                     width: ipx(c.i - beforeId + 1),
-                    backgroundColor: "red",
                 })
                 .on("click", () => {
                     editClip(i);
@@ -3661,23 +3947,25 @@ const timeLineTrack = <D>(op: {
     on: (data: { start: SrcId; end: SrcId; value: D }[]) => void;
 }) => {
     let data: { start: SrcId; end: SrcId; id: string; value: D }[] = [];
-    const track = view().addInto(timeLineControl);
+    const track = view().class("ve_track_row").addInto(timeLineControl);
 
     function setData(d: { start: SrcId; end: SrcId; value: D }[]) {
         data = structuredClone(d).map((d) => ({ ...d, id: uuid() }));
         render();
     }
     function ipx(n: number) {
-        return `${(n / listLength()) * 100}%`;
+        return `${(n / Math.max(1, listLength())) * 100}%`;
     }
     function i2px(i: number) {
-        return (i / listLength()) * track.el.offsetWidth;
+        return (i / Math.max(1, listLength())) * track.el.offsetWidth;
     }
     function px2i(px: number) {
-        return Math.floor((px / track.el.offsetWidth) * listLength()) as SrcId;
+        return Math.floor(
+            (px / Math.max(1, track.el.offsetWidth)) * listLength(),
+        ) as SrcId;
     }
     function getX(e: PointerEvent) {
-        const x = e.screenX - track.el.getBoundingClientRect().left;
+        const x = e.clientX - track.el.getBoundingClientRect().left;
         return x;
     }
     function itemEl(d: (typeof data)[0]) {
@@ -3722,12 +4010,12 @@ const timeLineTrack = <D>(op: {
         for (const d of data) {
             const s = i2px(d.start);
             const e = i2px(d.end);
-            if (s - 2 <= x && x <= s + 2) {
+            if (s - 3 <= x && x <= s + 3) {
                 type = "start";
                 itemId = d.id;
                 break;
             }
-            if (e - 2 <= x && x <= e + 2) {
+            if (e - 3 <= x && x <= e + 3) {
                 type = "end";
                 itemId = d.id;
                 break;
@@ -3776,13 +4064,13 @@ const timeLineTrack = <D>(op: {
             const x = getX(e);
             const { type } = getMouseType(x);
             if (type === "center") {
-                track.style({ cursor: "grabbing" });
+                track.style({ cursor: "grab" });
             } else if (type === "end") {
                 track.style({ cursor: "w-resize" });
             } else if (type === "start") {
                 track.style({ cursor: "e-resize" });
             } else {
-                track.style({ cursor: "default" });
+                track.style({ cursor: "crosshair" });
             }
         },
         start: (e) => {
@@ -3867,12 +4155,18 @@ const timeLineTrack = <D>(op: {
                         )
                     ];
 
-                newD.start = MathClamp(
-                    inI.start,
-                    newS,
-                    inI.end - width,
-                ) as SrcId;
-                newD.end = MathClamp(inI.start + width, newE, inI.end) as SrcId;
+                if (inI) {
+                    newD.start = MathClamp(
+                        inI.start,
+                        newS,
+                        inI.end - width,
+                    ) as SrcId;
+                    newD.end = MathClamp(
+                        inI.start + width,
+                        newE,
+                        inI.end,
+                    ) as SrcId;
+                }
             }
             setItemEl(newD, sd.el);
             return newD;
@@ -3915,25 +4209,21 @@ const timeLineTrack = <D>(op: {
 };
 
 const timeLineClipEl = timeLineClip();
-timeLineClipEl.el
-    .style({
-        backgroundColor: "#f001",
-    })
-    .attr({ title: "双击新建镜头" });
+timeLineClipEl.el.attr({ title: t("双击新建镜头") });
+
 const timeLineSpeedEl = timeLineTrack({
     el: (el, data) => {
-        el.style({
-            backgroundColor: "#00f",
-            fontSize: "min(100%, 16px)",
-            lineHeight: "100%",
-        })
-            .clear()
+        el.clear()
             .class(
+                "ve_seg_speed",
                 addClass(
                     {},
                     {
-                        "&>select": { background: "inherit" },
-                        "&>select>option": { background: "inherit" },
+                        "&>select": { background: "inherit", color: "#fff" },
+                        "&>select>option": {
+                            background: "var(--surface)",
+                            color: "var(--font-color)",
+                        },
                     },
                 ),
             )
@@ -3967,16 +4257,11 @@ const timeLineSpeedEl = timeLineTrack({
         });
     },
 });
-timeLineSpeedEl.el
-    .style({
-        backgroundColor: "#00f1",
-    })
-    .attr({ title: "拖动新建速度" });
+timeLineSpeedEl.el.attr({ title: t("拖动新建速度") });
+
 const timeLineEventEl = timeLineTrack({
     el: (el) => {
-        el.style({
-            backgroundColor: "#0f0",
-        });
+        el.class("ve_seg_event");
     },
     newValue: () => null,
     on: (data) => {
@@ -3988,14 +4273,10 @@ const timeLineEventEl = timeLineTrack({
         uiDataSave();
     },
 });
-timeLineEventEl.el.style({
-    backgroundColor: "#0f01",
-});
+
 const timeLineRemoveEl = timeLineTrack({
     el: (el) => {
-        el.style({
-            backgroundColor: "#000",
-        });
+        el.class("ve_seg_remove");
     },
     newValue: () => null,
     on: (data) => {
@@ -4009,171 +4290,48 @@ const timeLineRemoveEl = timeLineTrack({
         });
     },
 });
-timeLineRemoveEl.el
-    .style({
-        backgroundColor: "#0001",
-    })
-    .attr({ title: "拖动删除区间" });
+timeLineRemoveEl.el.attr({ title: t("拖动删除区间") });
 
-const timeLineFrame = view("x")
-    .style({ minHeight: "150px", gap: "8px" })
+function syncTrackModeVisibility() {
+    const showClip = !isNormalMode || showAdvancedTracksInNormal;
+    const showEvent = !isNormalMode;
+    trackLabelClip.style({ display: showClip ? "flex" : "none" });
+    timeLineClipEl.el.style({ display: showClip ? "block" : "none" });
+    trackLabelEvent.style({ display: showEvent ? "flex" : "none" });
+    timeLineEventEl.el.style({ display: showEvent ? "block" : "none" });
+    advancedTrackToggleBtn.style({
+        display: isNormalMode ? "inline-flex" : "none",
+    });
+    editSrcFrameBtn.style({ display: isNormalMode ? "none" : "inline-flex" });
+}
+
+const tracksShellEl = view("x")
+    .class("ve_tracks_shell")
+    .add([trackLabelsCol, timeLineControlP]);
+
+const timeLineFrame = view("x").class("ve_frame_strip");
+const timeLineFrameHl = "ve_frame_card_active";
+
+view("y")
+    .class("ve_timeline_dock")
+    .add([timelineTopBar, timeLineMain, tracksShellEl, timeLineFrame])
     .addInto();
-const timeLineFrameHl = addClass(
-    {
-        border: `solid 1px ${cssColor.f}`,
-        borderRadius: "var(--border-radius)",
-    },
-    {},
-);
 
-const exportConfigEls = {
-    gif: (() => {
-        const el = view("x").style({ paddingInline: "8px" });
-        const dither = label([check("dither"), "平滑颜色"]).style({
-            display: "flex",
-            alignItems: "center",
-        });
-        el.add(dither);
-        return el
-            .bindGet(() => ({
-                dither: dither.gv,
-            }))
-            .bindSet((v: { dither: boolean }) => {
-                dither.sv(v.dither);
-            });
-    })(),
-    apng: view(),
-    webp: view(),
-    avif: view(),
-    mp4: (() => {
-        const el = view("x").style({ paddingInline: "8px" });
-        const codec = label(
-            [
-                select([
-                    { value: "avc" },
-                    { value: "vp9" },
-                    { value: "av1" },
-                ] as const).class(Class.noDeco),
-                "编码",
-            ],
-            1,
-        )
-            .style({
-                display: "flex",
-                alignItems: "center",
-            })
-            // @ts-ignore
-            .sv(baseCodec);
-        el.add(codec);
-        return el
-            .bindGet(() => ({
-                codec: codec.gv,
-            }))
-            .bindSet((v: { codec: "vp9" | "avc" | "av1" }) => {
-                codec.sv(v.codec);
-            });
-    })(),
-    webm: (() => {
-        const el = view("x").style({ paddingInline: "8px" });
-        const codec = label(
-            [
-                select([
-                    { value: "vp8" },
-                    { value: "vp9" },
-                    { value: "av1" },
-                ] as const).class(Class.noDeco),
-                "编码",
-            ],
-            1,
-        )
-            .style({
-                display: "flex",
-                alignItems: "center",
-            })
-            // @ts-ignore
-            .sv(baseCodec);
-        el.add(codec);
-        return el
-            .bindGet(() => ({
-                codec: codec.gv,
-            }))
-            .bindSet((v: { codec: "vp8" | "vp9" | "av1" }) => {
-                codec.sv(v.codec);
-            });
-    })(),
-    png: view("x"),
-} satisfies Record<(typeof outputType)[number]["type"], ElType<HTMLElement>>;
-
-const exportPx = dynamicSelect();
-
-/** AV1 编码不可用时隐藏 avif */
-const exportTypes = outputType.filter(
-    (t) => t.type !== "avif" || codecMap.has("av1"),
-);
-
-// 新建 Record 变量存储 UI 元素
-const exportEls = {
-    type: select(exportTypes.map((t) => ({ value: t.type, name: t.name }))).on(
-        "change",
-        (_, el) => {
-            const type = el.gv;
-            store.set("录屏.超级录屏.格式", type);
-            const config = exportConfigEls[type];
-            exportEls.exportConfig.clear().add(config);
-        },
-    ),
-    exportConfig: view("x").class(Class.deco).style({ alignItems: "center" }),
-};
-
-const exportEl = frame("export", {
-    _: view("x")
-        .style({
-            padding: cssVar("o-padding"),
-        })
-        .class(Class.gap),
-    _x: {
-        _: view("x").class(Class.group),
-        export: iconBEl("save", "保存").on("click", save),
-        type: exportEls.type,
-    },
-    exportConfig: exportEls.exportConfig,
-    _s: spacer(),
-    px: exportPx.el,
-    editClip: iconBEl("draw", "编辑").on("click", async () => {
-        // 统一内容获取：渲染中的帧等完成，保证快照内容最新
-        const canvas = await fetchFrame(mainFrameGet, willPlayI);
-        if (!canvas) return;
-        canvas.convertToBlob({ type: "image/png" }).then(async (blob) => {
-            const buffer = Buffer.from(await blob.arrayBuffer());
-            renderSend("edit_pic", [buffer]);
-        });
-    }),
-    editSrc: button(t("编辑原图")).on("click", async () => {
-        const canvas = await clipFrameGet.getFrame(trans2src(willPlayI));
-        if (!canvas) return;
-        canvas.convertToBlob({ type: "image/png" }).then(async (blob) => {
-            const buffer = Buffer.from(await blob.arrayBuffer());
-            renderSend("edit_pic", [buffer]);
-        });
-    }),
-});
-
-const savedExportType = store.get("录屏.超级录屏.格式");
-const initExportType = exportTypes.some((t) => t.type === savedExportType)
-    ? (savedExportType as (typeof outputType)[number]["type"])
-    : "gif";
-// @ts-ignore
-exportEls.type.sv(initExportType);
-const exconfig = exportConfigEls[exportEls.type.gv];
-exportEls.exportConfig.clear().add(exconfig);
-
-exportEl.el.addInto();
-
-pack(document.body).style({
-    display: "flex",
-    flexDirection: "column",
-    height: "100vh",
-    overflow: "hidden",
+window.addEventListener("keydown", (e) => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (document.body.contains(stopPEl.el)) return;
+    if (e.code === "Space") {
+        e.preventDefault();
+        playEl.sv(!playEl.gv);
+        playEl.el.dispatchEvent(new Event("input"));
+    } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        lastFrame.el.click();
+    } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        nextFrame.el.click();
+    }
 });
 
 (async () => {
@@ -4269,7 +4427,7 @@ pack(document.body).style({
     exportPx.setList(
         [1, 2, 3, 4, 8].map((i) => ({
             value: String(i),
-            name: `/${i} ${evenSize(outBaseW / i)} x ${evenSize(outBaseH / i)}`,
+            name: `${Math.round(100 / i)}% · ${evenSize(outBaseW / i)}×${evenSize(outBaseH / i)}`,
         })),
     );
 
@@ -4339,11 +4497,10 @@ pack(document.body).style({
     }
 
     stopRecord = async (cancel?: boolean) => {
-        stopRecord = () => {}; // 只运行一次
+        stopRecord = () => {};
+        setRecordPausedFn = null;
 
         stopPEl.remove();
-
-        console.log("stop");
 
         if (hookStarted) uIOhook.stop();
         lisenerS.abort();
@@ -4377,17 +4534,12 @@ pack(document.body).style({
         // @ts-ignore
         encodedChunks = null;
 
-        console.log(afterCuncks);
-        console.log(keys);
-
         srcCs.setList(afterCuncks);
 
         if (fixedRect) {
             const rect = fixedRect;
             history.setDataF((uidata) => {
-                uidata.clipList = [
-                    { i: 0 as SrcId, rect, transition: ms2timestamp(400) },
-                ];
+                uidata.clipList = [{ i: 0 as SrcId, rect, transition: 0 }];
                 return uidata;
             }, t("固定录制区域"));
             history.apply();
@@ -4397,33 +4549,54 @@ pack(document.body).style({
 
         onPlay(0);
 
-        // 启动首次编码（后台增量进行，逐帧完成即可见），
-        // 预留帧序列立即加载、自动等待对应区域处理完成——
-        // 不再等所有待处理帧完成才开始显示
         const p = transform();
 
         setPlaySize();
         runAfterTrans();
 
-        // UI 初始化不依赖编码完成，立即执行
         const nowUi = history.getData();
         renderUiData(nowUi);
-        timeLineControl.sv(window.innerWidth / listLength());
+        const scrollW = timeLineControlP.el.clientWidth || window.innerWidth;
+        timeLineControl.sv(scrollW / Math.max(1, listLength()));
 
         await p;
     };
 
-    const recordTime = nowTimeEl();
-    stopPEl.add(
-        view("x")
-            .add([
-                recordTime,
-                iconBEl("close", "取消录制").on("click", () => {
-                    stopRecord(true);
-                }),
-            ])
-            .style({ alignItems: "center" }),
+    const recordTime = nowTimeEl().class("ve_rec_timer_big");
+    recCardSlotTimeEl.clear().add(recordTime);
+    recCardActionsEl.add(
+        button(t("取消录制"))
+            .class("ve_secondary_btn")
+            .on("click", () => {
+                stopRecord(true);
+            }),
     );
+
+    let pausedTotalMs = 0;
+    let pauseStartPerf: number | null = null;
+    let pausedVideoTsUs = 0;
+    let lastRawVideoTsUs: number | null = null;
+    let wasPausedOnPrevFrame = false;
+
+    setRecordPausedFn = (paused: boolean) => {
+        if (isRecordPaused === paused) return;
+        isRecordPaused = paused;
+        if (paused) {
+            pauseStartPerf = performance.now();
+        } else if (pauseStartPerf !== null) {
+            pausedTotalMs += performance.now() - pauseStartPerf;
+            pauseStartPerf = null;
+        }
+        syncRecOverlayPauseUi(paused);
+        const effectiveMs = Math.max(
+            0,
+            (pauseStartPerf ?? performance.now()) -
+                keys[0].time -
+                pausedTotalMs,
+        );
+        recordTime.sv(effectiveMs);
+        if (fixed) renderSend("recordTime", [tipTime(effectiveMs), paused]);
+    };
 
     let lastTime = performance.now();
 
@@ -4431,23 +4604,45 @@ pack(document.body).style({
     while (true) {
         const { done, value: videoFrame } = await reader.read();
         if (done) break;
-        audioCapture.noteVideoTs(videoFrame.timestamp);
+        const rawTs = videoFrame.timestamp;
+        if (isRecordPaused) {
+            wasPausedOnPrevFrame = true;
+            lastRawVideoTsUs = rawTs;
+            videoFrame.close();
+            continue;
+        }
+        if (wasPausedOnPrevFrame && lastRawVideoTsUs !== null) {
+            const gapUs = Math.max(
+                0,
+                rawTs - lastRawVideoTsUs - Math.round(1e6 / srcRate),
+            );
+            pausedVideoTsUs += gapUs;
+            wasPausedOnPrevFrame = false;
+        }
+        lastRawVideoTsUs = rawTs;
+        const adjTs = Math.max(0, rawTs - pausedVideoTsUs);
+        audioCapture.noteVideoTs(adjTs);
         if (encoder.encodeQueueSize > 2) {
             videoFrame.close();
         } else {
-            encoder.encode(videoFrame, {
+            const frameToEncode =
+                pausedVideoTsUs > 0
+                    ? new VideoFrame(videoFrame, { timestamp: adjTs })
+                    : videoFrame;
+            if (frameToEncode !== videoFrame) videoFrame.close();
+            encoder.encode(frameToEncode, {
                 keyFrame: encodedI % frameLength === 0,
             });
             encodedI++;
-            videoFrame.close();
+            frameToEncode.close();
         }
 
         const nowTime = performance.now();
-        if (nowTime - lastTime > 300) {
+        if (nowTime - lastTime > 250) {
             lastTime = nowTime;
-            const d = nowTime - keys[0].time;
+            const d = Math.max(0, nowTime - keys[0].time - pausedTotalMs);
             recordTime.sv(d);
-            if (fixed) renderSend("recordTime", [tipTime(d)]);
+            if (fixed) renderSend("recordTime", [tipTime(d), false]);
         }
     }
 })();
