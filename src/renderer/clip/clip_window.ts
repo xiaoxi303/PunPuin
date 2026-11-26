@@ -6348,6 +6348,8 @@ renderOn(
         document.body.style.opacity = "0";
         toolBar.style.transition = "none";
         drawBar.style.transition = "none";
+        clipHoverCanvas.style.transition = "none";
+        clipHoverBadge.el.style.transition = "none";
         lastMouseBarX = -1;
         lastMouseBarY = -1;
         if (cursorPoint) {
@@ -6517,6 +6519,8 @@ renderOn(
         requestAnimationFrame(() => {
             toolBar.style.transition = "";
             drawBar.style.transition = "";
+            clipHoverCanvas.style.transition = "";
+            clipHoverBadge.el.style.transition = "";
         });
     },
 );

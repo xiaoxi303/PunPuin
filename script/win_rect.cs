@@ -76,13 +76,15 @@ class WinRectProgram
     [DllImport("dwmapi.dll")]
     static extern int DwmFlush();
 
+    const int GWL_STYLE = -16;
     const int GWL_EXSTYLE = -20;
+    const int WS_POPUP = unchecked((int)0x80000000);
+    const int WS_OVERLAPPED_BITS = 0x00CF0000;
     const int WS_EX_TOOLWINDOW = 0x00000080;
     const int WS_EX_APPWINDOW = 0x00040000;
     const int WS_EX_TRANSPARENT = 0x00000020;
     const int WS_EX_LAYERED = 0x00080000;
     const int WS_EX_NOACTIVATE = 0x08000000;
-    const uint SWP_STYLE_REFRESH = 0x0037;
     const uint WDA_NONE = 0x00000000;
     const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
     const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
@@ -101,6 +103,12 @@ class WinRectProgram
             DwmSetWindowAttribute(hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref one, sizeof(int));
             if (asToolWindow)
             {
+                int st = GetWindowLong(hWnd, GWL_STYLE);
+                int nextSt = (st & ~WS_OVERLAPPED_BITS) | WS_POPUP;
+                if (nextSt != st)
+                {
+                    SetWindowLong(hWnd, GWL_STYLE, nextSt);
+                }
                 int ex = GetWindowLong(hWnd, GWL_EXSTYLE);
                 int nextEx = (ex | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
                 if (nextEx != ex)

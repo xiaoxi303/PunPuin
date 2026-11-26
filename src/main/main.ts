@@ -1424,8 +1424,11 @@ function createClipWindow() {
         width: primary.bounds.width,
         height: primary.bounds.height,
         show: false,
+        paintWhenInitiallyHidden: true,
         alwaysOnTop: !dev,
         fullscreenable: true,
+        minimizable: false,
+        maximizable: false,
         transparent: true,
         frame: false,
         thickFrame: false,
@@ -2671,25 +2674,27 @@ function createSuperRecorderWindow(fixed?: RecordRect) {
         });
     });
 }
-mainOn("setting_start_clip", () => {
+mainOn("setting_start_clip", async () => {
     if (settingWindow && !settingWindow.isDestroyed()) {
+        await ensureWin32NoAnimation(settingWindow, false);
         settingWindow.minimize();
     }
     setTimeout(() => {
         showPhoto();
-    }, 160);
+    }, 60);
 });
 mainOn("setting_quick_action", ([action]) => {
-    const hideSettingForClip = (fn: () => void) => {
+    const hideSettingForClip = async (fn: () => void) => {
         if (settingWindow && !settingWindow.isDestroyed()) {
+            await ensureWin32NoAnimation(settingWindow, false);
             settingWindow.minimize();
         }
-        setTimeout(fn, 160);
+        setTimeout(fn, 60);
     };
     if (action === "clip") {
-        hideSettingForClip(() => showPhoto());
+        void hideSettingForClip(() => showPhoto());
     } else if (action === "quick_clip") {
-        hideSettingForClip(() => void quickClip());
+        void hideSettingForClip(() => void quickClip());
     } else if (action === "ding_clipboard") {
         void dingFromClipBoard();
     } else if (action === "main_window") {
