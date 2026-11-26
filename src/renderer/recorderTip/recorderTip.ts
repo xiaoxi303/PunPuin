@@ -19,6 +19,7 @@ import { getOrt, getOrtSessionOptions, resolveUnpackedPath } from "../lib/ort";
 import { Class, getImgUrl, initStyle } from "../root/root";
 
 const params = new URLSearchParams(window.location.search);
+const isSuperHud = params.get("mode") === "super";
 const hudPlace =
     (params.get("hud") as "bottom" | "top" | "inside" | null) ?? "bottom";
 const frameLeft = Number(params.get("fl") ?? 0);
@@ -30,23 +31,31 @@ const frameHeight = Number(
 const pixelW = Number(params.get("pw") ?? 0);
 const pixelH = Number(params.get("ph") ?? 0);
 
-const cursorHighlightOn = Boolean(store.get("录屏.提示.光标.开启"));
+const cursorHighlightOn =
+    !isSuperHud && Boolean(store.get("录屏.提示.光标.开启"));
 
 function initRecord() {
+    if (isSuperHud) return;
     if (store.get("录屏.提示.键盘.开启") || store.get("录屏.提示.鼠标.开启"))
         // biome-ignore lint: 部分引入
         var { uIOhook, UiohookKey } =
             require("uiohook-napi") as typeof import("uiohook-napi");
 
     function rKey() {
-        const posi = store.get("录屏.提示.键盘.位置");
+        const posi = store.get("录屏.提示.键盘.位置") ?? {
+            x: "+",
+            y: "+",
+            offsetX: 4,
+            offsetY: 4,
+        };
         const px = posi.x === "+" ? "right" : "left";
         const py = posi.y === "+" ? "bottom" : "top";
         const pel = keysEl.parentElement as HTMLElement;
-        pel.style[px] = `${posi.offsetX}px`;
-        pel.style[py] = `${posi.offsetY}px`;
+        pel.style[px] = `${posi.offsetX ?? 4}px`;
+        pel.style[py] = `${posi.offsetY ?? 4}px`;
 
-        keysEl.style.fontSize = `${store.get("录屏.提示.键盘.大小") * 16}px`;
+        const keyScale = Number(store.get("录屏.提示.键盘.大小")) || 1;
+        keysEl.style.fontSize = `${keyScale * 16}px`;
 
         const keycode2key: Record<number, string | number> = {};
         for (const [i, v] of typedEntries(UiohookKey)) {
@@ -164,7 +173,7 @@ function initRecord() {
     if (cursorHighlightOn) recorderMouseEl.style.display = "flex";
 
     const mouseStyle = document.createElement("style");
-    mouseStyle.innerHTML = `.mouse{${store.get("录屏.提示.光标.样式").replaceAll(";", " !important;")}}`;
+    mouseStyle.innerHTML = `.mouse{${(store.get("录屏.提示.光标.样式") || "").replaceAll(";", " !important;")}}`;
     document.body.appendChild(mouseStyle);
 }
 
@@ -238,7 +247,13 @@ async function getAndSetStream() {
 let seg: typeof import("esearch-seg");
 
 async function initSeg() {
-    const bgSetting = store.get("录屏.摄像头.背景");
+    const bgSetting = store.get("录屏.摄像头.背景") ?? {
+        模式: "none",
+        模糊: 40,
+        imgUrl: "",
+        videoUrl: "",
+        fit: "cover",
+    };
     if (bgSetting.模式 === "none") {
         return;
     }
@@ -316,6 +331,7 @@ const rectEl = view()
     .addInto()
     .attr({ id: "recorder_rect" })
     .style({
+        display: isSuperHud ? "none" : "",
         left: `${frameLeft}px`,
         top: `${frameTop}px`,
         width: `${frameWidth}px`,
@@ -376,7 +392,11 @@ let segCanvas: HTMLCanvasElement = document.createElement("canvas");
 let isPaused = false;
 const pauseIconEl = iconEl("pause");
 const timeEl = txt("00:00").class("rec_timer");
-const resText = pixelW > 0 && pixelH > 0 ? `${pixelW}×${pixelH}` : "";
+const resText = isSuperHud
+    ? t("超级录屏")
+    : pixelW > 0 && pixelH > 0
+      ? `${pixelW}×${pixelH}`
+      : "";
 const resBadgeEl = resText ? txt(resText).class("rec_res_tag") : null;
 
 function syncPauseUi(paused: boolean) {
@@ -448,7 +468,7 @@ const controlBar = view("x")
         resBadgeEl,
         view().class("rec_sep"),
         pauseBtn,
-        cameraBtn,
+        isSuperHud ? null : cameraBtn,
         cancelBtn,
         finishBtn,
     ])
@@ -516,14 +536,20 @@ setInterval(() => {
     let interactive = false;
     if (inViewport) {
         const l = document.elementsFromPoint(x, y);
-        interactive = l.includes(cEl.el) || l.includes(controlBar.el);
+        interactive = l.some(
+            (el) =>
+                el === controlBar.el ||
+                controlBar.el.contains(el) ||
+                (cEl.el.style.display !== "none" &&
+                    (el === cEl.el || cEl.el.contains(el))),
+        );
     }
     const ignore = !interactive;
     if (ignore !== lastIgnoreMouse) {
         lastIgnoreMouse = ignore;
         renderSend("windowIgnoreMouse", [ignore]);
     }
-}, 32);
+}, 24);
 
 renderOn("recordTime", ([timeText, paused]) => {
     timeEl.sv(timeText);

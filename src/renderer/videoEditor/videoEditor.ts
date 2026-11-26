@@ -172,10 +172,15 @@ function fullClipRect() {
     return { x: (v.width - w) / 2, y: (v.height - h) / 2, w, h };
 }
 
-const frameLength = store.get("录屏.超级录屏.关键帧间隔");
+const frameLength = Math.max(
+    1,
+    Number(store.get("录屏.超级录屏.关键帧间隔")) || 150,
+);
 
-const srcRate = store.get("录屏.转换.帧率");
-const bitrate = store.get("录屏.转换.码率") * 1024 * 1024;
+const srcRate = Math.max(1, Number(store.get("录屏.转换.帧率")) || 30);
+const bitrate =
+    Math.max(0.2, Number(store.get("录屏.转换.码率")) || 2.5) * 1024 * 1024;
+let activeRecordCodec: string = "vp8";
 
 const outputType = [
     { type: "gif", name: "gif" },
@@ -695,7 +700,11 @@ function initKeys(push: (x: Omit<superRecording[0], "time" | "posi">) => void) {
     hookStarted = true;
 }
 
-async function afterRecord(chunks: EncodedVideoChunk[]) {
+async function afterRecord(
+    chunks: EncodedVideoChunk[],
+    recordedDurationUs = 0,
+) {
+    transformProgressEl.sv(0);
     transformTimeEl.sv(t("补帧中..."));
     // 补帧
     const m = new Map<number, number>();
@@ -724,18 +733,38 @@ async function afterRecord(chunks: EncodedVideoChunk[]) {
     const encoder = new VideoEncoder({
         output: (c: EncodedVideoChunk) => {
             encodedChunks.push(c);
-            transformProgressEl.sv(encodedChunks.length / totalFrameCount);
+            transformProgressEl.sv(
+                encodedChunks.length / Math.max(1, totalFrameCount),
+            );
         },
         error: (e) => console.error("Encode error:", e),
     });
 
-    encoder.configure({
-        ...encoderVideoConfig,
-        framerate: srcRate,
-        width: v.width,
-        height: v.height,
-    });
-    decoder.configure(decoderVideoConfig);
+    try {
+        encoder.configure({
+            ...encoderVideoConfig,
+            framerate: srcRate,
+            bitrate,
+            width: v.width,
+            height: v.height,
+        });
+    } catch {
+        encoder.configure({
+            codec: "vp8",
+            framerate: srcRate,
+            bitrate,
+            width: v.width,
+            height: v.height,
+        });
+    }
+    decoder.configure(
+        activeRecordCodec === decoderVideoConfig.codec
+            ? decoderVideoConfig
+            : {
+                  codec: activeRecordCodec,
+                  hardwareAcceleration: "no-preference",
+              },
+    );
     let lastTime = chunks[0].timestamp;
     for (const c of chunks) {
         const count = Math.round((c.timestamp - lastTime) / d);
@@ -743,6 +772,13 @@ async function afterRecord(chunks: EncodedVideoChunk[]) {
             m.set(lastTime, count - 1);
         }
         lastTime = c.timestamp;
+    }
+    if (recordedDurationUs > 0 && d > 0) {
+        const targetEndUs = firstTime + recordedDurationUs;
+        const tailCount = Math.round((targetEndUs - lastTime) / d);
+        if (tailCount > 0) {
+            m.set(lastTime, (m.get(lastTime) ?? 0) + tailCount);
+        }
     }
     const totalFrameCount =
         chunks.length + m.values().reduce((a, b) => a + b, 0);
@@ -760,8 +796,14 @@ async function afterRecord(chunks: EncodedVideoChunk[]) {
     return encodedChunks;
 }
 
+type PendingStop = { cancel?: boolean } | null;
+let pendingStopRequest: PendingStop = null;
+const takePendingStop = (): PendingStop => pendingStopRequest;
+
 /** 录制还没开始时停止录制视为直接关闭窗口 */
-let stopRecord: (cancel?: boolean) => void = () => {
+let stopRecord: (cancel?: boolean) => void = (cancel?: boolean) => {
+    pendingStopRequest = { cancel };
+    renderSend("recordStop", []);
     renderSend("windowClose", []);
 };
 
@@ -805,7 +847,7 @@ function tipTime(t: number) {
     const s = Math.trunc(t / 1000);
     const m = Math.trunc(s / 60);
     const h = Math.trunc(m / 60);
-    return `${h === 0 ? "" : `${h}:`}${m - 60 * h}:${String(
+    return `${h === 0 ? "" : `${h}:`}${String(m - 60 * h).padStart(2, "0")}:${String(
         s - 60 * m,
     ).padStart(2, "0")}`;
 }
@@ -3045,16 +3087,7 @@ let showAdvancedTracksInNormal = false;
 let setRecordPausedFn: ((paused: boolean) => void) | null = null;
 
 renderOn("superRecorderInit", ([sourceId, fixed]) => {
-    isNormalMode = Boolean(fixed);
-    const modeText = fixed ? t("普通录屏") : t("超级录屏");
-    setTitle(modeText);
-    modeBadgeTextEl.sv(modeText);
-    recCardModeTextEl.sv(
-        fixed
-            ? `${t("普通录屏")} · ${Math.round(fixed.rect[2])}×${Math.round(fixed.rect[3])}`
-            : t("超级录屏"),
-    );
-    syncTrackModeVisibility();
+    if (fixed) setTitle(t("普通录屏"));
     initPromise.resolve({ sourceId, fixed });
 });
 
@@ -3086,7 +3119,7 @@ await (async () => {
     const codecM = new Map([
         ["av1", "av01.1.04M.08"],
         ["vp9", "vp09.00.10.08"],
-        ["avc", "avc1.42001F"],
+        ["avc", "avc1.420033"],
         ["vp8", "vp8"],
     ]);
     // todo 找到能用的具体编码
@@ -3135,19 +3168,23 @@ await (async () => {
 })();
 
 const [codec, isDeAcc, isEnAcc] = (() => {
-    // todo use codecMap key instead
-    const l = Array.from(codecMap.values());
-    if (store.get("录屏.超级录屏.编码选择") === "性能优先") {
-        l.toSorted(
+    const streamCodecs = ["vp9", "av1", "vp8"]
+        .map((k) => codecMap.get(k))
+        .filter((v): v is NonNullable<typeof v> => Boolean(v));
+    if (
+        store.get("录屏.超级录屏.编码选择") === "性能优先" &&
+        streamCodecs.length > 0
+    ) {
+        const sorted = streamCodecs.toSorted(
             (a, b) =>
                 Number(b.isDeAcc) +
                 Number(b.isEnAcc) -
                 Number(a.isDeAcc) -
                 Number(a.isEnAcc),
         );
-        return [l[0].codec, l[0].isDeAcc, l[0].isEnAcc];
+        return [sorted[0].codec, sorted[0].isDeAcc, sorted[0].isEnAcc];
     }
-    for (const c of codecMap.values()) {
+    for (const c of streamCodecs) {
         if (c.isDeAcc || c.isEnAcc) return [c.codec, c.isDeAcc, c.isEnAcc];
     }
     return ["vp8", false, false];
@@ -4336,314 +4373,405 @@ window.addEventListener("keydown", (e) => {
 
 (async () => {
     if (testMode) return;
-    const { sourceId, fixed } = await initPromise.promise;
-    let stream: MediaStream | undefined;
-    const audioDevices = store.get("录屏.音频.设备列表");
-    const wantSysAudio =
-        store.get("录屏.音频.启用系统内录") &&
-        audioDevices.includes(sysAudioId);
-    const videoConstraint = {
-        mandatory: {
-            chromeMediaSource: "desktop",
-            chromeMediaSourceId: sourceId,
-        },
-    };
     try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            audio: wantSysAudio
-                ? {
-                      // @ts-ignore
-                      mandatory: {
-                          chromeMediaSource: "desktop",
-                      },
-                  }
-                : false,
+        const { sourceId, fixed } = await initPromise.promise;
+        isNormalMode = Boolean(fixed);
+        const modeText = fixed ? t("普通录屏") : t("超级录屏");
+        setTitle(modeText);
+        modeBadgeTextEl.sv(modeText);
+        recCardModeTextEl.sv(
+            fixed
+                ? `${t("普通录屏")} · ${Math.round(fixed.rect[2])}×${Math.round(fixed.rect[3])}`
+                : t("超级录屏"),
+        );
+        syncTrackModeVisibility();
+
+        let stream: MediaStream | undefined;
+        let reader: ReadableStreamDefaultReader<VideoFrame> | null = null;
+        let encoder: VideoEncoder | null = null;
+        let fixedRect: { x: number; y: number; w: number; h: number } | null =
+            null;
+        let encodedChunks: EncodedVideoChunk[] = [];
+        let encodeSize = 0;
+        let tickTimer: ReturnType<typeof setInterval> | null = null;
+        const keys: superRecording = [
+            { time: performance.now(), isStart: true, posi: { x: 0, y: 0 } },
+        ];
+        const lisenerS = new AbortController();
+        let pausedTotalMs = 0;
+        let pauseStartPerf: number | null = null;
+
+        const calcEffectiveMs = () =>
+            Math.max(
+                0,
+                (pauseStartPerf ?? performance.now()) -
+                    keys[0].time -
+                    pausedTotalMs,
+            );
+
+        stopRecord = async (cancel?: boolean) => {
+            stopRecord = () => {};
+            setRecordPausedFn = null;
+            if (tickTimer !== null) {
+                clearInterval(tickTimer);
+                tickTimer = null;
+            }
+
+            const finalEffectiveMs = calcEffectiveMs();
+            stopPEl.remove();
+
+            if (hookStarted) {
+                try {
+                    uIOhook.stop();
+                } catch {}
+                hookStarted = false;
+            }
+            lisenerS.abort();
+
+            if (reader) {
+                try {
+                    await reader.cancel();
+                } catch {}
+                reader = null;
+            }
+            if (stream) {
+                for (const tr of stream.getTracks()) {
+                    try {
+                        tr.stop();
+                    } catch {}
+                }
+            }
+
+            renderSend("recordStop", []);
+
+            const audioStop = audioCapture
+                .stop(encodedChunks.at(0)?.timestamp)
+                .catch((e: unknown) => {
+                    console.error(e);
+                    return null;
+                });
+
+            if (encoder && !cancel) {
+                try {
+                    await encoder.flush();
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
+            if (cancel || !encoder || encodedChunks.length === 0) {
+                if (encoder) {
+                    try {
+                        encoder.close();
+                    } catch {}
+                }
+                renderSend("windowClose", []);
+                return;
+            }
+
+            renderSend("windowMax", []);
+
+            try {
+                encoder.close();
+            } catch {}
+
+            srcAudio = await audioStop;
+
+            history.apply();
+
+            const afterCuncks = await afterRecord(
+                encodedChunks,
+                Math.round(finalEffectiveMs * 1000),
+            );
             // @ts-ignore
-            video: videoConstraint,
-        });
-    } catch (e) {
-        console.error(e);
-    }
-    if (!stream && wantSysAudio) {
-        // 系统内录获取失败时回退为纯视频，保证录制可用
-        console.warn("超级录屏：获取系统音频失败，回退为无音频");
+            encodedChunks = null;
+
+            srcCs.setList(afterCuncks);
+
+            if (fixedRect) {
+                const rect = fixedRect;
+                history.setDataF((uidata) => {
+                    uidata.clipList = [{ i: 0 as SrcId, rect, transition: 0 }];
+                    return uidata;
+                }, t("固定录制区域"));
+                history.apply();
+            } else {
+                mapKeysOnFrames(afterCuncks, keys);
+            }
+
+            onPlay(0);
+
+            const p = transform();
+
+            setPlaySize();
+            runAfterTrans();
+
+            const nowUi = history.getData();
+            renderUiData(nowUi);
+            const scrollW =
+                timeLineControlP.el.clientWidth || window.innerWidth;
+            timeLineControl.sv(scrollW / Math.max(1, listLength()));
+
+            await p;
+        };
+
+        const earlyStop = takePendingStop();
+        if (earlyStop) {
+            stopRecord(earlyStop.cancel);
+            return;
+        }
+
+        const rawAudioDevices = store.get("录屏.音频.设备列表");
+        const audioDevices = Array.isArray(rawAudioDevices)
+            ? rawAudioDevices
+            : [];
+        const wantSysAudio = Boolean(
+            store.get("录屏.音频.启用系统内录") &&
+                audioDevices.includes(sysAudioId),
+        );
+        const videoConstraint = {
+            mandatory: {
+                chromeMediaSource: "desktop",
+                chromeMediaSourceId: sourceId,
+            },
+        };
         try {
             stream = await navigator.mediaDevices.getUserMedia({
-                audio: false,
+                audio: wantSysAudio
+                    ? {
+                          // @ts-ignore
+                          mandatory: {
+                              chromeMediaSource: "desktop",
+                          },
+                      }
+                    : false,
                 // @ts-ignore
                 video: videoConstraint,
             });
         } catch (e) {
             console.error(e);
         }
-    }
-    if (!stream) return;
-
-    audioCapture.setSourceId(sourceId);
-    audioCapture.setSystemTrack(
-        wantSysAudio ? (stream.getAudioTracks()[0] ?? null) : null,
-        stream,
-        wantSysAudio,
-    );
-    audioCapture.initFromSettings();
-
-    const videoTrack = stream.getVideoTracks()[0];
-
-    const encoder = new VideoEncoder({
-        output: (c: EncodedVideoChunk) => {
-            encodedChunks.push(c);
-            encodeSize += c.byteLength;
-            const freeMem = getFreeMemory();
-            const willUseMem = encodeSize * 2; // 未来编辑时会复制一份，*2是考虑到稳帧
-            if (freeMem - willUseMem < 20 * 1024 * 1024) {
-                console.warn("内存不足，停止录制");
-                stopRecord();
-            } else if (freeMem - willUseMem < 50 * 1024 * 1024) {
-                renderSend("recordMemWarning", []);
-            }
-        },
-        error: (e) => console.error("Encode error:", e),
-    });
-
-    const videoWidth = videoTrack.getSettings().width ?? screen.width;
-    const videoHeight = videoTrack.getSettings().height ?? screen.height;
-
-    encoder.configure({
-        ...encoderVideoConfig,
-        width: videoWidth,
-        height: videoHeight,
-        framerate: srcRate,
-        bitrate: bitrate,
-    });
-    v.width = videoWidth;
-    v.height = videoHeight;
-
-    const fixedRect = fixed ? toVideoRect(fixed.rect, fixed.w, fixed.h) : null;
-    /** 输出尺寸基准：普通录屏取截屏选区，超级录屏取整屏 */
-    const outBaseW = fixedRect?.w ?? v.width;
-    const outBaseH = fixedRect?.h ?? v.height;
-    outputAspect = outBaseW / outBaseH;
-
-    exportPx.setList(
-        [1, 2, 3, 4, 8].map((i) => ({
-            value: String(i),
-            name: `${Math.round(100 / i)}% · ${evenSize(outBaseW / i)}×${evenSize(outBaseH / i)}`,
-        })),
-    );
-
-    exportPx.el.on("change", async () => {
-        const x = Number(exportPx.el.gv);
-        store.set("录屏.超级录屏.缩放", x);
-        outputV.width = evenSize(outBaseW / x);
-        outputV.height = evenSize(outBaseH / x);
-        setPlaySize();
-        // 尺寸编辑：立即刷新预览（脏帧自动等待），不阻塞
-        const p = transform({
-            size: `${outputV.width}x${outputV.height}`,
-        });
-        runAfterTrans();
-        await p;
-    });
-
-    const lastR = store.get("录屏.超级录屏.缩放") ?? 1;
-
-    exportPx.el.sv(String(lastR));
-
-    outputV.width = evenSize(outBaseW / lastR);
-    outputV.height = evenSize(outBaseH / lastR);
-
-    const reader = new MediaStreamTrackProcessor({
-        track: videoTrack,
-    }).readable.getReader();
-
-    // 读取视频帧并编码
-
-    let encodedChunks: EncodedVideoChunk[] = [];
-    let encodeSize = 0;
-
-    const keys: superRecording = [];
-    keys.push({ time: performance.now(), isStart: true, posi: { x: 0, y: 0 } });
-    const lisenerS = new AbortController();
-    if (!fixed) {
-        initKeys((x) => {
-            keys.push({
-                time: performance.now(),
-                posi: mousePosi,
-                ...x,
-            });
-        });
-        window.addEventListener(
-            "focus",
-            () => {
-                keys.push({
-                    time: performance.now(),
-                    posi: mousePosi,
-                    wFoucus: true,
+        if (!stream && wantSysAudio) {
+            console.warn("超级录屏：获取系统音频失败，回退为无音频");
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    // @ts-ignore
+                    video: videoConstraint,
                 });
-            },
-            { signal: lisenerS.signal },
-        );
-        window.addEventListener(
-            "blur",
-            () => {
-                keys.push({
-                    time: performance.now(),
-                    posi: mousePosi,
-                    wBlur: true,
-                });
-            },
-            { signal: lisenerS.signal },
-        );
-    }
-
-    stopRecord = async (cancel?: boolean) => {
-        stopRecord = () => {};
-        setRecordPausedFn = null;
-
-        stopPEl.remove();
-
-        if (hookStarted) uIOhook.stop();
-        lisenerS.abort();
-
-        reader.cancel();
-
-        if (fixed) renderSend("recordStop", []);
-
-        const audioStop = audioCapture
-            .stop(encodedChunks.at(0)?.timestamp)
-            .catch((e: unknown) => {
+            } catch (e) {
                 console.error(e);
-                return null;
-            });
-
-        if (cancel) {
-            renderSend("windowClose", []);
+            }
+        }
+        if (!stream) {
+            stopRecord(true);
             return;
         }
 
-        renderSend("windowMax", []);
-
-        await encoder.flush();
-        encoder.close();
-
-        srcAudio = await audioStop;
-
-        history.apply();
-
-        const afterCuncks = await afterRecord(encodedChunks);
-        // @ts-ignore
-        encodedChunks = null;
-
-        srcCs.setList(afterCuncks);
-
-        if (fixedRect) {
-            const rect = fixedRect;
-            history.setDataF((uidata) => {
-                uidata.clipList = [{ i: 0 as SrcId, rect, transition: 0 }];
-                return uidata;
-            }, t("固定录制区域"));
-            history.apply();
-        } else {
-            mapKeysOnFrames(afterCuncks, keys);
-        }
-
-        onPlay(0);
-
-        const p = transform();
-
-        setPlaySize();
-        runAfterTrans();
-
-        const nowUi = history.getData();
-        renderUiData(nowUi);
-        const scrollW = timeLineControlP.el.clientWidth || window.innerWidth;
-        timeLineControl.sv(scrollW / Math.max(1, listLength()));
-
-        await p;
-    };
-
-    const recordTime = nowTimeEl().class("ve_rec_timer_big");
-    recCardSlotTimeEl.clear().add(recordTime);
-    recCardActionsEl.add(
-        button(t("取消录制"))
-            .class("ve_secondary_btn")
-            .on("click", () => {
-                stopRecord(true);
-            }),
-    );
-
-    let pausedTotalMs = 0;
-    let pauseStartPerf: number | null = null;
-    let pausedVideoTsUs = 0;
-    let lastRawVideoTsUs: number | null = null;
-    let wasPausedOnPrevFrame = false;
-
-    setRecordPausedFn = (paused: boolean) => {
-        if (isRecordPaused === paused) return;
-        isRecordPaused = paused;
-        if (paused) {
-            pauseStartPerf = performance.now();
-        } else if (pauseStartPerf !== null) {
-            pausedTotalMs += performance.now() - pauseStartPerf;
-            pauseStartPerf = null;
-        }
-        syncRecOverlayPauseUi(paused);
-        const effectiveMs = Math.max(
-            0,
-            (pauseStartPerf ?? performance.now()) -
-                keys[0].time -
-                pausedTotalMs,
+        audioCapture.setSourceId(sourceId);
+        audioCapture.setSystemTrack(
+            wantSysAudio ? (stream.getAudioTracks()[0] ?? null) : null,
+            stream,
+            wantSysAudio,
         );
-        recordTime.sv(effectiveMs);
-        if (fixed) renderSend("recordTime", [tipTime(effectiveMs), paused]);
-    };
+        void audioCapture.initFromSettings();
 
-    let lastTime = performance.now();
+        const videoTrack = stream.getVideoTracks()[0];
 
-    let encodedI = 0;
-    while (true) {
-        const { done, value: videoFrame } = await reader.read();
-        if (done) break;
-        const rawTs = videoFrame.timestamp;
-        if (isRecordPaused) {
-            wasPausedOnPrevFrame = true;
-            lastRawVideoTsUs = rawTs;
-            videoFrame.close();
-            continue;
-        }
-        if (wasPausedOnPrevFrame && lastRawVideoTsUs !== null) {
-            const gapUs = Math.max(
-                0,
-                rawTs - lastRawVideoTsUs - Math.round(1e6 / srcRate),
-            );
-            pausedVideoTsUs += gapUs;
-            wasPausedOnPrevFrame = false;
-        }
-        lastRawVideoTsUs = rawTs;
-        const adjTs = Math.max(0, rawTs - pausedVideoTsUs);
-        audioCapture.noteVideoTs(adjTs);
-        if (encoder.encodeQueueSize > 2) {
-            videoFrame.close();
-        } else {
-            const frameToEncode =
-                pausedVideoTsUs > 0
-                    ? new VideoFrame(videoFrame, { timestamp: adjTs })
-                    : videoFrame;
-            if (frameToEncode !== videoFrame) videoFrame.close();
-            encoder.encode(frameToEncode, {
-                keyFrame: encodedI % frameLength === 0,
+        encoder = new VideoEncoder({
+            output: (c: EncodedVideoChunk) => {
+                encodedChunks.push(c);
+                encodeSize += c.byteLength;
+                const freeMem = getFreeMemory();
+                const willUseMem = encodeSize * 2;
+                if (freeMem - willUseMem < 20 * 1024 * 1024) {
+                    console.warn("内存不足，停止录制");
+                    stopRecord();
+                } else if (freeMem - willUseMem < 50 * 1024 * 1024) {
+                    renderSend("recordMemWarning", []);
+                }
+            },
+            error: (e) => console.error("Encode error:", e),
+        });
+
+        const videoWidth = evenSize(
+            videoTrack.getSettings().width ?? screen.width,
+        );
+        const videoHeight = evenSize(
+            videoTrack.getSettings().height ?? screen.height,
+        );
+
+        try {
+            encoder.configure({
+                ...encoderVideoConfig,
+                width: videoWidth,
+                height: videoHeight,
+                framerate: srcRate,
+                bitrate: bitrate,
             });
-            encodedI++;
-            frameToEncode.close();
+            activeRecordCodec = encoderVideoConfig.codec;
+        } catch {
+            encoder.configure({
+                codec: "vp8",
+                width: videoWidth,
+                height: videoHeight,
+                framerate: srcRate,
+                bitrate: bitrate,
+            });
+            activeRecordCodec = "vp8";
+        }
+        v.width = videoWidth;
+        v.height = videoHeight;
+
+        fixedRect = fixed ? toVideoRect(fixed.rect, fixed.w, fixed.h) : null;
+        const outBaseW = fixedRect?.w ?? v.width;
+        const outBaseH = fixedRect?.h ?? v.height;
+        outputAspect = outBaseW / outBaseH;
+
+        exportPx.setList(
+            [1, 2, 3, 4, 8].map((i) => ({
+                value: String(i),
+                name: `${Math.round(100 / i)}% · ${evenSize(outBaseW / i)}×${evenSize(outBaseH / i)}`,
+            })),
+        );
+
+        exportPx.el.on("change", async () => {
+            const x = Number(exportPx.el.gv) || 1;
+            store.set("录屏.超级录屏.缩放", x);
+            outputV.width = evenSize(outBaseW / x);
+            outputV.height = evenSize(outBaseH / x);
+            setPlaySize();
+            const p = transform({
+                size: `${outputV.width}x${outputV.height}`,
+            });
+            runAfterTrans();
+            await p;
+        });
+
+        const lastR = Math.max(1, Number(store.get("录屏.超级录屏.缩放")) || 1);
+
+        exportPx.el.sv(String(lastR));
+
+        outputV.width = evenSize(outBaseW / lastR);
+        outputV.height = evenSize(outBaseH / lastR);
+
+        reader = new MediaStreamTrackProcessor({
+            track: videoTrack,
+        }).readable.getReader();
+
+        keys[0].time = performance.now();
+        if (!fixed) {
+            initKeys((x) => {
+                keys.push({
+                    time: performance.now(),
+                    posi: mousePosi,
+                    ...x,
+                });
+            });
+            window.addEventListener(
+                "focus",
+                () => {
+                    keys.push({
+                        time: performance.now(),
+                        posi: mousePosi,
+                        wFoucus: true,
+                    });
+                },
+                { signal: lisenerS.signal },
+            );
+            window.addEventListener(
+                "blur",
+                () => {
+                    keys.push({
+                        time: performance.now(),
+                        posi: mousePosi,
+                        wBlur: true,
+                    });
+                },
+                { signal: lisenerS.signal },
+            );
         }
 
-        const nowTime = performance.now();
-        if (nowTime - lastTime > 250) {
-            lastTime = nowTime;
-            const d = Math.max(0, nowTime - keys[0].time - pausedTotalMs);
-            recordTime.sv(d);
-            if (fixed) renderSend("recordTime", [tipTime(d), false]);
+        const recordTime = nowTimeEl().class("ve_rec_timer_big");
+        recCardSlotTimeEl.clear().add(recordTime);
+        recCardActionsEl.add(
+            button(t("取消录制"))
+                .class("ve_secondary_btn")
+                .on("click", () => {
+                    stopRecord(true);
+                }),
+        );
+
+        let pausedVideoTsUs = 0;
+        let lastRawVideoTsUs: number | null = null;
+        let wasPausedOnPrevFrame = false;
+
+        const emitRecordClock = () => {
+            const effectiveMs = calcEffectiveMs();
+            recordTime.sv(effectiveMs);
+            renderSend("recordTime", [tipTime(effectiveMs), isRecordPaused]);
+        };
+
+        setRecordPausedFn = (paused: boolean) => {
+            if (isRecordPaused === paused) return;
+            isRecordPaused = paused;
+            if (paused) {
+                pauseStartPerf = performance.now();
+            } else if (pauseStartPerf !== null) {
+                pausedTotalMs += performance.now() - pauseStartPerf;
+                pauseStartPerf = null;
+            }
+            syncRecOverlayPauseUi(paused);
+            emitRecordClock();
+        };
+
+        emitRecordClock();
+        tickTimer = setInterval(emitRecordClock, 200);
+
+        let encodedI = 0;
+        while (reader) {
+            const { done, value: videoFrame } = await reader.read();
+            if (done || !videoFrame) break;
+            const rawTs = videoFrame.timestamp;
+            if (isRecordPaused) {
+                wasPausedOnPrevFrame = true;
+                lastRawVideoTsUs = rawTs;
+                videoFrame.close();
+                continue;
+            }
+            if (wasPausedOnPrevFrame && lastRawVideoTsUs !== null) {
+                const gapUs = Math.max(
+                    0,
+                    rawTs - lastRawVideoTsUs - Math.round(1e6 / srcRate),
+                );
+                pausedVideoTsUs += gapUs;
+                wasPausedOnPrevFrame = false;
+            }
+            lastRawVideoTsUs = rawTs;
+            const adjTs = Math.max(0, rawTs - pausedVideoTsUs);
+            audioCapture.noteVideoTs(adjTs);
+            if (
+                encoder?.state !== "configured" ||
+                encoder.encodeQueueSize > 2
+            ) {
+                videoFrame.close();
+            } else {
+                const frameToEncode =
+                    pausedVideoTsUs > 0
+                        ? new VideoFrame(videoFrame, { timestamp: adjTs })
+                        : videoFrame;
+                if (frameToEncode !== videoFrame) videoFrame.close();
+                encoder.encode(frameToEncode, {
+                    keyFrame: encodedI % frameLength === 0,
+                });
+                encodedI++;
+                frameToEncode.close();
+            }
         }
+    } catch (err) {
+        console.error("Recorder fatal error:", err);
+        renderSend("recordStop", []);
+        renderSend("windowClose", []);
     }
 })();
 

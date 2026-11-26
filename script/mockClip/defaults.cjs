@@ -191,7 +191,50 @@ module.exports = {
         方向: "y",
         显示模式: "自动",
     },
-    录屏: { 模式: "normal" },
+    录屏: {
+        模式: "normal",
+        摄像头: {
+            开启: false,
+            镜像: false,
+            设备: "",
+            背景: {
+                模式: "none",
+                模糊: 40,
+                imgUrl: "",
+                videoUrl: "",
+                fit: "cover",
+            },
+        },
+        音频: {
+            设备列表: [],
+            启用系统内录: true,
+        },
+        转换: {
+            码率: 2.5,
+            帧率: 30,
+        },
+        提示: {
+            键盘: {
+                开启: false,
+                位置: { x: "+", y: "+", offsetX: 4, offsetY: 4 },
+                大小: 1,
+            },
+            鼠标: {
+                开启: false,
+            },
+            光标: {
+                开启: false,
+                样式: "width: 24px;\nheight: 24px;\nborder-radius: 50%;\nbackground-color: #ff08;",
+            },
+        },
+        超级录屏: {
+            编码选择: "性能优先",
+            关键帧间隔: 150,
+            格式: "gif",
+            缩放: 2,
+            导出后关闭: false,
+        },
+    },
     屏幕翻译: {
         type: "ding",
         dTime: 3000,

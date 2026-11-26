@@ -50,6 +50,15 @@ class WinRectProgram
     static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll")]
+    static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll")]
+    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+
+    [DllImport("user32.dll")]
     static extern IntPtr SetProcessDpiAwarenessContext(IntPtr dpiContext);
 
     [DllImport("shcore.dll")]
@@ -61,13 +70,59 @@ class WinRectProgram
     [DllImport("dwmapi.dll")]
     static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmFlush();
+
     const int GWL_EXSTYLE = -20;
     const int WS_EX_TOOLWINDOW = 0x00000080;
+    const int WS_EX_APPWINDOW = 0x00040000;
     const int WS_EX_TRANSPARENT = 0x00000020;
     const int WS_EX_LAYERED = 0x00080000;
     const int WS_EX_NOACTIVATE = 0x08000000;
+    const uint SWP_STYLE_REFRESH = 0x0037;
+    const uint WDA_NONE = 0x00000000;
+    const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
     const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     const int DWMWA_CLOAKED = 14;
+    const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+
+    static void ApplyNoAnimation(long hwndVal, bool asToolWindow)
+    {
+        if (hwndVal == 0) return;
+        try
+        {
+            IntPtr hWnd = new IntPtr(hwndVal);
+            int one = 1;
+            DwmSetWindowAttribute(hWnd, DWMWA_TRANSITIONS_FORCEDISABLED, ref one, sizeof(int));
+            DwmSetWindowAttribute(hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref one, sizeof(int));
+            if (asToolWindow)
+            {
+                int ex = GetWindowLong(hWnd, GWL_EXSTYLE);
+                int nextEx = (ex | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
+                if (nextEx != ex)
+                {
+                    SetWindowLong(hWnd, GWL_EXSTYLE, nextEx);
+                }
+            }
+            DwmFlush();
+        }
+        catch { }
+    }
+
+    static void ApplyExcludeFromCapture(long hwndVal, bool exclude)
+    {
+        if (hwndVal == 0) return;
+        try
+        {
+            IntPtr hWnd = new IntPtr(hwndVal);
+            SetWindowDisplayAffinity(hWnd, exclude ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+        }
+        catch { }
+    }
 
     static string EscapeJson(string s)
     {
@@ -254,10 +309,27 @@ class WinRectProgram
 
         uint skipPid = 0;
         bool daemon = false;
+        long noAnimHwnd = 0;
+        bool noAnimTool = false;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--daemon") daemon = true;
             else if (args[i] == "--skip-pid" && i + 1 < args.Length) uint.TryParse(args[++i], out skipPid);
+            else if (args[i] == "--no-anim" && i + 1 < args.Length)
+            {
+                long.TryParse(args[++i], out noAnimHwnd);
+                if (i + 1 < args.Length && args[i + 1] == "tool")
+                {
+                    noAnimTool = true;
+                    i++;
+                }
+            }
+        }
+
+        if (noAnimHwnd != 0 && !daemon)
+        {
+            ApplyNoAnimation(noAnimHwnd, noAnimTool);
+            return 0;
         }
 
         if (daemon)
@@ -265,9 +337,54 @@ class WinRectProgram
             string line;
             while ((line = Console.ReadLine()) != null)
             {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith("noanimtool:"))
+                {
+                    long h;
+                    if (long.TryParse(trimmed.Substring(11), out h)) ApplyNoAnimation(h, true);
+                    Console.WriteLine("ok");
+                    Console.Out.Flush();
+                    continue;
+                }
+                if (trimmed.StartsWith("noanim:"))
+                {
+                    long h;
+                    if (long.TryParse(trimmed.Substring(7), out h)) ApplyNoAnimation(h, false);
+                    Console.WriteLine("ok");
+                    Console.Out.Flush();
+                    continue;
+                }
+                if (trimmed.StartsWith("exclude:"))
+                {
+                    string rest = trimmed.Substring(8);
+                    int idx = rest.IndexOf(':');
+                    if (idx > 0)
+                    {
+                        long h;
+                        int flag;
+                        if (long.TryParse(rest.Substring(0, idx), out h) && int.TryParse(rest.Substring(idx + 1), out flag))
+                        {
+                            ApplyExcludeFromCapture(h, flag == 1);
+                        }
+                    }
+                    Console.WriteLine("ok");
+                    Console.Out.Flush();
+                    continue;
+                }
                 uint reqSkip = skipPid;
-                uint parsed;
-                if (uint.TryParse(line.Trim(), out parsed)) reqSkip = parsed;
+                int sep = trimmed.IndexOf('|');
+                if (sep >= 0)
+                {
+                    uint parsedPid;
+                    if (uint.TryParse(trimmed.Substring(0, sep), out parsedPid)) reqSkip = parsedPid;
+                    long clipH;
+                    if (long.TryParse(trimmed.Substring(sep + 1), out clipH)) ApplyNoAnimation(clipH, true);
+                }
+                else
+                {
+                    uint parsed;
+                    if (uint.TryParse(trimmed, out parsed)) reqSkip = parsed;
+                }
                 Console.WriteLine(QueryWindowsJson(reqSkip));
                 Console.Out.Flush();
             }

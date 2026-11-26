@@ -4,6 +4,7 @@ import { Buffer } from "node:buffer";
 import {
     type ChildProcessWithoutNullStreams,
     exec,
+    execFile,
     execFileSync,
     execSync,
     spawn,
@@ -1444,6 +1445,7 @@ function createClipWindow() {
         },
     });
 
+    disableWin32WindowAnimation(_clipWindow, true);
     if (!dev) _clipWindow.setAlwaysOnTop(true, "screen-saver");
 
     rendererPath(_clipWindow, "capture.html");
@@ -2073,7 +2075,9 @@ async function fullScreen(displayId?: number) {
         });
     }
     if (!dev) win.setAlwaysOnTop(true, "screen-saver");
-    if (process.platform !== "win32") {
+    if (process.platform === "win32") {
+        await ensureWin32NoAnimation(win, true);
+    } else {
         win.setSimpleFullScreen(true);
     }
     win.show();
@@ -2083,41 +2087,141 @@ async function fullScreen(displayId?: number) {
 }
 
 let winRectDaemon: ChildProcessWithoutNullStreams | null = null;
-let winRectPending: ((rects: NativeWinRect[]) => void) | null = null;
+const winRectQueue: ((line: string) => void)[] = [];
 let winRectBuf = "";
+
+function getWin32HwndString(win: BrowserWindow | null | undefined): string {
+    if (process.platform !== "win32" || !win || win.isDestroyed()) return "";
+    try {
+        const buf = win.getNativeWindowHandle();
+        if (buf.byteLength >= 8) return buf.readBigUInt64LE(0).toString();
+        if (buf.byteLength >= 4) return buf.readUInt32LE(0).toString();
+    } catch {}
+    return "";
+}
+
+function sendWinRectCommand(
+    cmd: string,
+    timeoutMs = 250,
+): Promise<string | null> {
+    if (process.platform !== "win32") return Promise.resolve(null);
+    if (!winRectDaemon) warmWinRectDaemon();
+    if (!winRectDaemon) return Promise.resolve(null);
+    return new Promise((resolveDone) => {
+        let settled = false;
+        const cb = (line: string) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolveDone(line);
+        };
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            const idx = winRectQueue.indexOf(cb);
+            if (idx >= 0) winRectQueue.splice(idx, 1);
+            resolveDone(null);
+        }, timeoutMs);
+        winRectQueue.push(cb);
+        try {
+            winRectDaemon!.stdin.write(`${cmd}\n`);
+        } catch {
+            clearTimeout(timer);
+            const idx = winRectQueue.indexOf(cb);
+            if (idx >= 0) winRectQueue.splice(idx, 1);
+            if (!settled) {
+                settled = true;
+                resolveDone(null);
+            }
+        }
+    });
+}
+
+async function ensureWin32NoAnimation(
+    win: BrowserWindow | null | undefined,
+    asToolWindow = true,
+): Promise<void> {
+    if (process.platform !== "win32" || !win || win.isDestroyed()) return;
+    const hwnd = getWin32HwndString(win);
+    if (!hwnd || hwnd === "0") return;
+    const ack = await sendWinRectCommand(
+        `${asToolWindow ? "noanimtool" : "noanim"}:${hwnd}`,
+        200,
+    );
+    if (ack !== null) return;
+    const exe = resolveWinRectExePath();
+    if (!exe) return;
+    const args = ["--no-anim", hwnd];
+    if (asToolWindow) args.push("tool");
+    await new Promise<void>((resolveDone) => {
+        execFile(exe, args, { timeout: 350, windowsHide: true }, () =>
+            resolveDone(),
+        );
+    });
+}
+
+function disableWin32WindowAnimation(
+    win: BrowserWindow | null | undefined,
+    asToolWindow = true,
+) {
+    void ensureWin32NoAnimation(win, asToolWindow);
+}
+
+function setWin32ExcludeFromCapture(
+    win: BrowserWindow | null | undefined,
+    exclude: boolean,
+) {
+    if (process.platform !== "win32" || !win || win.isDestroyed()) return;
+    const buildNum = Number(release().split(".")[2] || 0);
+    if (buildNum < 19041) return;
+    const hwnd = getWin32HwndString(win);
+    if (!hwnd || hwnd === "0") return;
+    void sendWinRectCommand(`exclude:${hwnd}:${exclude ? 1 : 0}`, 200);
+}
 
 function resolveWinRectExePath(): string | null {
     if (process.platform !== "win32") return null;
-    const candidates = [
+    const packagedCandidates = [
         join(runPath, "lib/win_rect.exe").replace(
             "app.asar",
             "app.asar.unpacked",
         ),
         join(runPath, "lib/win_rect.exe"),
-        resolve("lib/win_rect.exe"),
     ];
-    for (const p of candidates) {
-        if (existsSync(p)) return p;
+    for (const p of packagedCandidates) {
+        if (existsSync(p) && app.isPackaged) return p;
     }
     const csPath = resolve("script/win_rect.cs");
+    const devOutExe = resolve("lib/win_rect.exe");
     const csc = "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe";
     if (existsSync(csPath) && existsSync(csc)) {
-        try {
-            const outExe = resolve("lib/win_rect.exe");
-            mkdirSync(dirname(outExe), { recursive: true });
-            execFileSync(
-                csc,
-                [
-                    "/nologo",
-                    "/optimize+",
-                    "/target:exe",
-                    `/out:${outExe}`,
-                    csPath,
-                ],
-                { stdio: "ignore", windowsHide: true },
-            );
-            if (existsSync(outExe)) return outExe;
-        } catch {}
+        let needCompile = !existsSync(devOutExe);
+        if (!needCompile) {
+            try {
+                needCompile =
+                    statSync(csPath).mtimeMs > statSync(devOutExe).mtimeMs;
+            } catch {}
+        }
+        if (needCompile) {
+            try {
+                mkdirSync(dirname(devOutExe), { recursive: true });
+                execFileSync(
+                    csc,
+                    [
+                        "/nologo",
+                        "/optimize+",
+                        "/target:exe",
+                        `/out:${devOutExe}`,
+                        csPath,
+                    ],
+                    { stdio: "ignore", windowsHide: true },
+                );
+            } catch {}
+        }
+    }
+    if (existsSync(devOutExe)) return devOutExe;
+    for (const p of packagedCandidates) {
+        if (existsSync(p)) return p;
     }
     return null;
 }
@@ -2138,27 +2242,20 @@ function warmWinRectDaemon() {
         proc.stdout.setEncoding("utf8");
         proc.stdout.on("data", (chunk: string) => {
             winRectBuf += chunk;
-            const nl = winRectBuf.indexOf("\n");
-            if (nl >= 0) {
+            let nl = winRectBuf.indexOf("\n");
+            while (nl >= 0) {
                 const line = winRectBuf.slice(0, nl).trim();
                 winRectBuf = winRectBuf.slice(nl + 1);
-                const cb = winRectPending;
-                winRectPending = null;
-                if (cb) {
-                    try {
-                        cb(JSON.parse(line) as NativeWinRect[]);
-                    } catch {
-                        cb([]);
-                    }
-                }
+                const cb = winRectQueue.shift();
+                if (cb) cb(line);
+                nl = winRectBuf.indexOf("\n");
             }
         });
         const cleanup = () => {
             if (winRectDaemon === proc) winRectDaemon = null;
-            if (winRectPending) {
-                const cb = winRectPending;
-                winRectPending = null;
-                cb([]);
+            while (winRectQueue.length > 0) {
+                const cb = winRectQueue.shift();
+                cb?.("");
             }
         };
         proc.on("exit", cleanup);
@@ -2178,51 +2275,55 @@ app.on("will-quit", () => {
     }
 });
 
-function queryWin32Rects(skipPid: number): Promise<NativeWinRect[]> {
-    if (process.platform !== "win32") return Promise.resolve([]);
-    if (!winRectDaemon) warmWinRectDaemon();
-    if (winRectDaemon && !winRectPending) {
-        return new Promise((resolveDone) => {
-            const timer = setTimeout(() => {
-                if (winRectPending) {
-                    winRectPending = null;
-                    resolveDone([]);
-                }
-            }, 350);
-            winRectPending = (rects) => {
-                clearTimeout(timer);
-                resolveDone(rects);
-            };
-            try {
-                winRectDaemon!.stdin.write(`${skipPid}\n`);
-            } catch {
-                clearTimeout(timer);
-                winRectPending = null;
-                resolveDone([]);
-            }
-        });
+async function queryWin32Rects(
+    skipPid: number,
+    clipHwnd = "",
+): Promise<NativeWinRect[]> {
+    if (process.platform !== "win32") return [];
+    const payload = clipHwnd ? `${skipPid}|${clipHwnd}` : `${skipPid}`;
+    const line = await sendWinRectCommand(payload, 350);
+    if (line !== null) {
+        if (!line) return [];
+        try {
+            return JSON.parse(line) as NativeWinRect[];
+        } catch {
+            return [];
+        }
     }
     const exe = resolveWinRectExePath();
-    if (!exe) return Promise.resolve([]);
+    if (!exe) return [];
     try {
+        if (clipHwnd) {
+            await new Promise<void>((resolveDone) => {
+                execFile(
+                    exe,
+                    ["--no-anim", clipHwnd, "tool"],
+                    { timeout: 350, windowsHide: true },
+                    () => resolveDone(),
+                );
+            });
+        }
         const out = execFileSync(exe, ["--skip-pid", String(skipPid)], {
             encoding: "utf8",
             timeout: 800,
             windowsHide: true,
         });
-        return Promise.resolve(JSON.parse(out.trim()) as NativeWinRect[]);
+        return JSON.parse(out.trim()) as NativeWinRect[];
     } catch {
-        return Promise.resolve([]);
+        return [];
     }
 }
 
 async function sendCaptureEvent(data?: Buffer, type?: 功能) {
     const cursorAbs = screen.getCursorScreenPoint();
     const targetDisplay = screen.getDisplayNearestPoint(cursorAbs);
-    const [win, nativeWinRects] = await Promise.all([
-        getClipWin(),
-        data ? Promise.resolve(undefined) : queryWin32Rects(process.pid),
-    ]);
+    const win = await getClipWin();
+    if (data && process.platform === "win32") {
+        await ensureWin32NoAnimation(win, true);
+    }
+    const nativeWinRects = data
+        ? undefined
+        : await queryWin32Rects(process.pid, getWin32HwndString(win));
     win.webContents.setZoomFactor(1.0);
     if (!win.isVisible()) {
         win.setBounds({
@@ -2341,19 +2442,64 @@ function lianPai(d = store.get("连拍.间隔"), maxN = store.get("连拍.数"))
     }
 }
 
-let _recorder: BrowserWindow;
-let _recorderTipWin: BrowserWindow;
+let _recorder: BrowserWindow | null = null;
+let _recorderTipWin: BrowserWindow | null = null;
 
 /** 录屏提示覆盖层：框选区域的高亮外框、键盘鼠标提示、摄像头画中画、悬浮控制胶囊 */
-function createRecorderTipWindow(
-    rect0: [number, number, number, number],
-    ratio: number,
-    displayId: string,
-) {
-    const framePad = 3;
+function createRecorderTipWindow(fixed?: RecordRect) {
     const hudBarHeight = 46;
+    const hudMinWidth = 324;
+
+    if (!fixed) {
+        const display = screen.getDisplayNearestPoint(
+            screen.getCursorScreenPoint(),
+        );
+        const work = display.workArea;
+        const winW = 340;
+        const winH = hudBarHeight + 8;
+        const winX = Math.max(work.x + 8, work.x + work.width - winW - 16);
+        const winY = work.y + 14;
+        const superTipWin = new BrowserWindow({
+            x: Math.round(winX),
+            y: Math.round(winY),
+            width: winW,
+            height: winH,
+            transparent: true,
+            frame: false,
+            thickFrame: false,
+            roundedCorners: false,
+            hasShadow: false,
+            skipTaskbar: true,
+            enableLargerThanScreen: true,
+            autoHideMenuBar: true,
+            resizable: false,
+            webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false,
+                sandbox: false,
+                backgroundThrottling: false,
+            },
+        });
+        disableWin32WindowAnimation(superTipWin, true);
+        setWin32ExcludeFromCapture(superTipWin, true);
+        _recorderTipWin = superTipWin;
+        rendererPath(superTipWin, "recorderTip.html", {
+            query: {
+                mode: "super",
+                hud: "top",
+            },
+        });
+        if (dev) superTipWin.webContents.openDevTools();
+        superTipWin.setAlwaysOnTop(true, "screen-saver");
+        superTipWin.setIgnoreMouseEvents(true, { forward: true });
+        return superTipWin;
+    }
+
+    const rect0 = fixed.rect;
+    const ratio = fixed.r;
+    const displayId = fixed.id;
+    const framePad = 3;
     const hudGap = 8;
-    const hudMinWidth = 316;
     const display =
         screen.getAllDisplays().find((d) => String(d.id) === displayId) ??
         screen.getPrimaryDisplay();
@@ -2410,7 +2556,6 @@ function createRecorderTipWindow(
         roundedCorners: false,
         hasShadow: false,
         skipTaskbar: true,
-        focusable: false,
         enableLargerThanScreen: true,
         autoHideMenuBar: true,
         resizable: process.platform === "linux",
@@ -2421,9 +2566,11 @@ function createRecorderTipWindow(
             backgroundThrottling: false,
         },
     });
+    disableWin32WindowAnimation(recorderTipWin, true);
     _recorderTipWin = recorderTipWin;
     rendererPath(recorderTipWin, "recorderTip.html", {
         query: {
+            mode: "normal",
             hud: hudPlace,
             fl: String(Math.round(frameLeft)),
             ft: String(Math.round(frameTop)),
@@ -2437,16 +2584,19 @@ function createRecorderTipWindow(
 
     recorderTipWin.setAlwaysOnTop(true, "screen-saver");
 
-    recorderTipWin.setIgnoreMouseEvents(true);
+    recorderTipWin.setIgnoreMouseEvents(true, { forward: true });
     return recorderTipWin;
 }
 
-function checkWin(win: BrowserWindow) {
-    return win && !win.isDestroyed();
+function checkWin(win: BrowserWindow | null | undefined): win is BrowserWindow {
+    return Boolean(win && !win.isDestroyed());
 }
 
 mainOn("recordStop", () => {
-    if (checkWin(_recorderTipWin)) _recorderTipWin.close();
+    if (checkWin(_recorderTipWin)) {
+        _recorderTipWin.close();
+        _recorderTipWin = null;
+    }
 });
 mainOnReflect("recordTime", () => {
     if (checkWin(_recorderTipWin)) return [_recorderTipWin.webContents];
@@ -2456,41 +2606,67 @@ mainOnReflect("recordCamera", () => {
     if (checkWin(_recorderTipWin)) return [_recorderTipWin.webContents];
     return [];
 });
-mainOnReflect("recordState", () => {
+mainOnReflect("recordState", ([state]) => {
+    if (state === "cancel" && checkWin(_recorderTipWin)) {
+        _recorderTipWin.close();
+        _recorderTipWin = null;
+    }
     if (checkWin(_recorder)) return [_recorder.webContents];
+    if (checkWin(_recorderTipWin)) {
+        _recorderTipWin.close();
+        _recorderTipWin = null;
+    }
     return [];
 });
 
 function createSuperRecorderWindow(fixed?: RecordRect) {
+    if (checkWin(_recorderTipWin)) {
+        _recorderTipWin.close();
+        _recorderTipWin = null;
+    }
     const baseCfg = baseWinConfig();
     const recorder = new BrowserWindow({
         ...baseCfg,
-        show: !fixed,
+        show: false,
+        paintWhenInitiallyHidden: true,
         webPreferences: {
             ...baseCfg.webPreferences,
             backgroundThrottling: false,
         },
     });
-    if (!fixed) recorder.minimize();
+    disableWin32WindowAnimation(recorder, false);
+    recorder.webContents.setBackgroundThrottling(false);
+    _recorder = recorder;
     rendererPath(recorder, "videoEditor.html");
     if (dev) recorder.webContents.openDevTools();
+    const tip = createRecorderTipWindow(fixed);
     if (fixed) {
-        _recorder = recorder;
-        const tip = createRecorderTipWindow(fixed.rect, fixed.r, fixed.id);
         tip.webContents.on("did-finish-load", () => {
+            if (tip.isDestroyed()) return;
             mainSend(tip.webContents, "recordCamera", [
                 store.get("录屏.摄像头.开启"),
             ]);
         });
-        recorder.on("close", () => {
-            if (!tip.isDestroyed()) tip.close();
-        });
     }
+    recorder.on("close", () => {
+        if (!tip.isDestroyed()) tip.close();
+        if (_recorderTipWin === tip) _recorderTipWin = null;
+        if (_recorder === recorder) _recorder = null;
+    });
     recorder.webContents.on("did-finish-load", () => {
         desktopCapturer.getSources({ types: ["screen"] }).then((sources) => {
+            if (recorder.isDestroyed() || sources.length === 0) return;
             let dId = sources[0].id;
-            if (fixed)
+            if (fixed) {
                 dId = sources.find((s) => s.display_id === fixed.id)?.id ?? dId;
+            } else {
+                const cursorDisp = screen.getDisplayNearestPoint(
+                    screen.getCursorScreenPoint(),
+                );
+                dId =
+                    sources.find((s) => s.display_id === String(cursorDisp.id))
+                        ?.id ?? dId;
+            }
             mainSend(recorder.webContents, "superRecorderInit", [dId, fixed]);
         });
     });
@@ -3846,7 +4022,10 @@ mainOn("noti", ([{ title, body }]) => {
 });
 
 mainOn("windowIgnoreMouse", ([arg], e) => {
-    BrowserWindow.fromWebContents(e.sender)?.setIgnoreMouseEvents(arg);
+    BrowserWindow.fromWebContents(e.sender)?.setIgnoreMouseEvents(
+        arg,
+        arg ? { forward: true } : undefined,
+    );
 });
 mainOn("windowClose", (_, e) => {
     BrowserWindow.fromWebContents(e.sender)?.close();
@@ -3854,6 +4033,7 @@ mainOn("windowClose", (_, e) => {
 mainOn("windowMax", (_, e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win || win.isDestroyed()) return;
+    win.setOpacity(1);
     if (win.isMinimized()) win.restore();
     if (!win.isVisible()) win.show();
     win.maximize();

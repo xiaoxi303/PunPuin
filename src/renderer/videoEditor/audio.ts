@@ -167,7 +167,8 @@ export class AudioCapture {
 
     /** 从设置恢复麦克风选择 */
     async initFromSettings() {
-        const list = store.get("录屏.音频.设备列表");
+        const rawList = store.get("录屏.音频.设备列表");
+        const list = Array.isArray(rawList) ? rawList : [];
         for (const id of list) {
             if (id !== sysAudioId) await this.setMic(id, true);
         }
