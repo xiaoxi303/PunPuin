@@ -4,6 +4,7 @@ const path = require("node:path");
 const { execFileSync, execSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const yauzl = require("yauzl");
+const appVersion = require("./package.json").version;
 
 function ensureDir(dir) {
     if (!fs.existsSync(dir)) {
@@ -612,14 +613,14 @@ const build = {
     portable: {
         artifactName:
             arch === "x64"
-                ? "PunPun-v0.2.1-win-x64.exe"
-                : `PunPun-v0.2.1-win-${arch}.exe`,
+                ? `PunPun-v${appVersion}-win-x64.exe`
+                : `PunPun-v${appVersion}-win-${arch}.exe`,
     },
     nsis: {
         artifactName:
             arch === "x64"
-                ? "PunPun-v0.2.1-win-x64.exe"
-                : `PunPun-v0.2.1-win-${arch}.exe`,
+                ? `PunPun-v${appVersion}-win-x64.exe`
+                : `PunPun-v${appVersion}-win-${arch}.exe`,
         script: "./script/portable-fast.nsi",
         oneClick: true,
         perMachine: false,

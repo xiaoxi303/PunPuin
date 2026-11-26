@@ -6,7 +6,7 @@
 
 **跨平台一体化截图工具 · 显卡加速离线 OCR · 无框原地翻译 · 现代标注美化 · 贴图 · GIF 录屏**
 
-[![Version](https://img.shields.io/badge/version-v0.2.1%20正式版-2563EB?style=flat-square)](https://github.com/xiaoxi303/PunPuin/releases/latest)
+[![Version](https://img.shields.io/badge/version-v0.2.2%20正式版-2563EB?style=flat-square)](https://github.com/xiaoxi303/PunPuin/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20macOS%20(Apple%20Silicon%20%26%20Intel)-0EA5E9?style=flat-square)](https://github.com/xiaoxi303/PunPuin/releases/latest)
 [![Packages](https://img.shields.io/badge/GitHub%20Packages-ghcr.io%2Fxiaoxi303%2Fpunpuin-8B5CF6?style=flat-square)](https://github.com/xiaoxi303/PunPuin/pkgs/container/punpuin)
 [![License](https://img.shields.io/badge/license-GPL--3.0-10B981?style=flat-square)](LICENSE)
@@ -19,7 +19,7 @@
 
 ---
 
-## 核心亮点（v0.2.1 正式版）
+## 核心亮点（v0.2.2 正式版）
 
 ### 1. 精准窗口识别与高帧率丝滑框选
 - **1:1 高分屏原画直出**：全面适配 Windows 高分屏缩放与 macOS Retina 显示器，无损保留原始分辨率画质。
@@ -60,9 +60,9 @@
 
 | 系统与芯片 | 推荐下载文件 | 说明 |
 | :--- | :--- | :--- |
-| **Windows 10 / 11 (x64)** | `PunPun-v0.2.1-win-x64.exe` | 免安装单文件便携版（首次运行建立本地缓存，后续秒开） |
-| **macOS Apple Silicon (M1~M5)** | `PunPun-0.2.1-darwin-arm64.dmg` | Apple 芯片原生安装包（亦提供 `.zip` 免安装压缩包） |
-| **macOS Intel (x64)** | `PunPun-0.2.1-darwin-x64.dmg` | Intel 芯片 Mac 安装包 |
+| **Windows 10 / 11 (x64)** | `PunPun-v0.2.2-win-x64.exe` | 免安装单文件便携版（首次运行建立本地缓存，后续秒开） |
+| **macOS Apple Silicon (M1~M5)** | `PunPun-0.2.2-darwin-arm64.dmg` | Apple 芯片原生安装包（亦提供 `.zip` 免安装压缩包） |
+| **macOS Intel (x64)** | `PunPun-0.2.2-darwin-x64.dmg` | Intel 芯片 Mac 安装包 |
 
 ### macOS 首次运行提示
 1. 因未接入 Apple 付费开发者公证，首次打开如提示“无法验证开发者”或“已损坏”，可在「系统设置 → 隐私与安全性」点击「仍要打开」，或在终端执行一次：

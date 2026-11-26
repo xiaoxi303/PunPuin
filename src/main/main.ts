@@ -1424,6 +1424,7 @@ function createClipWindow() {
         width: primary.bounds.width,
         height: primary.bounds.height,
         show: false,
+        // ?????????????????????????????????????
         paintWhenInitiallyHidden: true,
         alwaysOnTop: !dev,
         fullscreenable: true,
@@ -1962,7 +1963,7 @@ mainOn("long_compact_end", async () => {
 });
 
 mainOn("clip_show", () => {
-    fullScreen();
+    if (isClipWinHealthy(clipWindow)) showClipWindow(clipWindow);
 });
 mainOn("clip_close", () => {
     exitFullScreen();
@@ -2053,6 +2054,49 @@ function showPhoto(imgPath?: string) {
     } else {
         sendCaptureEvent();
     }
+}
+
+function getVirtualDisplayBounds() {
+    const displays = screen.getAllDisplays();
+    if (displays.length === 0) return screen.getPrimaryDisplay().bounds;
+
+    const bounds = displays.reduce(
+        (result, display) => {
+            result.x = Math.min(result.x, display.bounds.x);
+            result.y = Math.min(result.y, display.bounds.y);
+            result.right = Math.max(
+                result.right,
+                display.bounds.x + display.bounds.width,
+            );
+            result.bottom = Math.max(
+                result.bottom,
+                display.bounds.y + display.bounds.height,
+            );
+            return result;
+        },
+        {
+            x: Number.POSITIVE_INFINITY,
+            y: Number.POSITIVE_INFINITY,
+            right: Number.NEGATIVE_INFINITY,
+            bottom: Number.NEGATIVE_INFINITY,
+        },
+    );
+
+    return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.right - bounds.x,
+        height: bounds.bottom - bounds.y,
+    };
+}
+
+function showClipWindow(win: BrowserWindow) {
+    if (win.isDestroyed()) return;
+    if (!dev) win.setAlwaysOnTop(true, "screen-saver");
+    win.show();
+    win.moveTop();
+    win.focus();
+    win.webContents.focus();
 }
 
 async function fullScreen(displayId?: number) {
@@ -2321,6 +2365,9 @@ async function sendCaptureEvent(data?: Buffer, type?: 功能) {
     const cursorAbs = screen.getCursorScreenPoint();
     const targetDisplay = screen.getDisplayNearestPoint(cursorAbs);
     const win = await getClipWin();
+    // ???????????????????????????????? clip_show?
+    win.hide();
+    win.setBounds(getVirtualDisplayBounds(), false);
     if (data && process.platform === "win32") {
         await ensureWin32NoAnimation(win, true);
     }
@@ -2328,14 +2375,6 @@ async function sendCaptureEvent(data?: Buffer, type?: 功能) {
         ? undefined
         : await queryWin32Rects(process.pid, getWin32HwndString(win));
     win.webContents.setZoomFactor(1.0);
-    if (!win.isVisible()) {
-        win.setBounds({
-            x: targetDisplay.bounds.x,
-            y: targetDisplay.bounds.y,
-            width: targetDisplay.bounds.width,
-            height: targetDisplay.bounds.height,
-        });
-    }
     mainSend(win.webContents, "clip_init", [
         screen.getAllDisplays(),
         data,
