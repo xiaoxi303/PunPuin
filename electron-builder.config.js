@@ -1,7 +1,7 @@
 // @ts-check
 const fs = require("node:fs");
 const path = require("node:path");
-const { execSync } = require("node:child_process");
+const { execFileSync, execSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const yauzl = require("yauzl");
 
@@ -439,8 +439,17 @@ const beforePack = async () => {
         const csc = cscCandidates.find((p) => fs.existsSync(p));
         if (csc) {
             ensureDir("./lib");
-            execSync(
-                `"${csc}" /nologo /optimize+ /target:exe /out:./lib/win_rect.exe ./script/win_rect.cs`,
+            const outExe = path.resolve(__dirname, "lib", "win_rect.exe");
+            const srcCs = path.resolve(__dirname, "script", "win_rect.cs");
+            execFileSync(
+                csc,
+                [
+                    "/nologo",
+                    "/optimize+",
+                    "/target:exe",
+                    `/out:${outExe}`,
+                    srcCs,
+                ],
                 { stdio: "inherit" },
             );
         }
