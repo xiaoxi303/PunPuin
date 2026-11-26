@@ -59,14 +59,28 @@ export type NativeWinRect = {
     order: number;
     max: boolean;
     child?: boolean;
+    uia?: boolean;
+    role?: string;
     cls: string;
     title: string;
+};
+
+export type NativeMonitorRect = {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    workX?: number;
+    workY?: number;
+    workW?: number;
+    workH?: number;
+    primary?: boolean;
 };
 
 type Message = {
     clip_ready: () => void;
     clip_reset: () => void;
-    clip_show: (session: number) => void;
+    clip_show: (session?: number) => void;
     clip_close: () => void;
     copy_image: (buffer: ArrayBuffer, type: string) => void;
     copy_image_file: (buffer: ArrayBuffer, type: string) => void;
@@ -130,7 +144,9 @@ type Message = {
         nativeWinRects?: NativeWinRect[],
         cursorPoint?: { x: number; y: number },
         session?: number,
+        nativeMonitors?: NativeMonitorRect[],
     ) => void;
+    clip_uia_rects: (session: number, rects: NativeWinRect[]) => void;
     open_this_browser: (window_name: number, url: string) => void;
     edit_pic: (img: Buffer<ArrayBufferLike>) => void;
     dialogMessage: (op: MessageBoxSyncOptions) => number;

@@ -51,7 +51,11 @@ import {
 import minimist from "minimist";
 import main from "xtranslator";
 import { githubMirrorList } from "../../lib/github_mirror";
-import type { NativeWinRect, RecordRect } from "../../lib/ipc";
+import type {
+    NativeMonitorRect,
+    NativeWinRect,
+    RecordRect,
+} from "../../lib/ipc";
 import { mainHandle, mainOn, mainOnReflect, mainSend } from "../../lib/ipc";
 import Store from "../../lib/store/store";
 import time_format from "../../lib/time_format";
@@ -275,8 +279,27 @@ function rendererPath2(
     }
 }
 
-if (!store.get("硬件加速")) {
+const startupRenderMode =
+    store.get("渲染模式") || (process.platform === "win32" ? "d3d11" : "auto");
+if (!store.get("硬件加速") || startupRenderMode === "software") {
     app.disableHardwareAcceleration();
+} else if (process.platform === "win32") {
+    app.commandLine.appendSwitch(
+        "disable-gpu-process-for-dx12-info-collection",
+    );
+    app.commandLine.appendSwitch("disable-vulkan-surface");
+    if (
+        startupRenderMode === "d3d11" ||
+        startupRenderMode === "low_power" ||
+        startupRenderMode === "high_performance"
+    ) {
+        app.commandLine.appendSwitch("use-angle", "d3d11");
+    }
+    if (startupRenderMode === "low_power") {
+        app.commandLine.appendSwitch("force_low_power_gpu");
+    } else if (startupRenderMode === "high_performance") {
+        app.commandLine.appendSwitch("force_high_performance_gpu");
+    }
 }
 
 /**
@@ -1359,10 +1382,17 @@ let clipWindowLoaded = false;
 let clipReadyWaiters: ((v: BrowserWindow) => void)[] = [];
 let lastClipCrashAt = 0;
 let clipSession = 0;
+let clipSessionActive = false;
+let lastClipDisplayId: number | null = null;
+let lastClipMonPhys: NativeMonitorRect | null = null;
+let lastClipHasImgBuffer = false;
 
 function markClipReady(win: BrowserWindow) {
     if (!win || win.isDestroyed() || win !== clipWindow) return;
     clipWindowLoaded = true;
+    if (process.platform === "win32" && !clipSessionActive && keepClip) {
+        void parkClipWindow(win);
+    }
     const waiters = clipReadyWaiters;
     clipReadyWaiters = [];
     for (const resolveWaiter of waiters) {
@@ -1372,6 +1402,8 @@ function markClipReady(win: BrowserWindow) {
 
 function destroyClipWindow() {
     clipWindowLoaded = false;
+    clipSessionActive = false;
+    lastClipDisplayId = null;
     const old = clipWindow;
     clipWindow = null;
     if (old && !old.isDestroyed()) {
@@ -1417,13 +1449,13 @@ const getClipWin = async (): Promise<BrowserWindow> => {
 /** 初始化截屏后台窗口 */
 function createClipWindow() {
     clipWindowLoaded = false;
-    const bounds = getVirtualDisplayBounds();
+    const primary = screen.getPrimaryDisplay();
     const _clipWindow = new BrowserWindow({
         icon: theIcon,
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
+        x: primary.bounds.x,
+        y: primary.bounds.y,
+        width: primary.bounds.width,
+        height: primary.bounds.height,
         show: false,
         paintWhenInitiallyHidden: true,
         backgroundColor: "#00000000",
@@ -1965,17 +1997,48 @@ mainOn("long_compact_end", async () => {
 
 mainOn("clip_show", async ([session]) => {
     const win = clipWindow;
-    if (session !== clipSession || !isClipWinHealthy(win)) return;
-    try {
-        await win.webContents.capturePage(
-            { x: 0, y: 0, width: 1, height: 1 },
-            { stayHidden: true },
-        );
-    } catch (error) {
-        console.warn("clipWindow first-frame capture failed:", error);
+    if (
+        (session !== undefined && session !== clipSession) ||
+        !isClipWinHealthy(win)
+    ) {
         return;
     }
-    if (session !== clipSession || !isClipWinHealthy(win)) return;
+    const activeSession = session ?? clipSession;
+    clipSessionActive = true;
+    win.setIgnoreMouseEvents(false);
+    if (process.platform === "win32") {
+        if (!dev) win.setAlwaysOnTop(true, "screen-saver");
+        if (!win.isVisible()) {
+            await ensureWin32NoAnimation(win, true);
+            win.show();
+        }
+        win.moveTop();
+        win.focus();
+        win.webContents.focus();
+        if (
+            !lastClipHasImgBuffer &&
+            lastClipMonPhys &&
+            store.get("框选.识别窗口") &&
+            store.get("框选.识别窗口元素") !== false
+        ) {
+            const monPhys = lastClipMonPhys;
+            void queryWin32UiaRects(process.pid, monPhys).then((uiaRects) => {
+                if (
+                    activeSession !== clipSession ||
+                    !clipSessionActive ||
+                    !isClipWinHealthy(win) ||
+                    uiaRects.length === 0
+                ) {
+                    return;
+                }
+                mainSend(win.webContents, "clip_uia_rects", [
+                    activeSession,
+                    uiaRects,
+                ]);
+            });
+        }
+        return;
+    }
     showClipWindow(win);
 });
 mainOn("clip_close", () => {
@@ -2069,40 +2132,6 @@ function showPhoto(imgPath?: string) {
     }
 }
 
-function getVirtualDisplayBounds() {
-    const displays = screen.getAllDisplays();
-    if (displays.length === 0) return screen.getPrimaryDisplay().bounds;
-
-    const bounds = displays.reduce(
-        (result, display) => {
-            result.x = Math.min(result.x, display.bounds.x);
-            result.y = Math.min(result.y, display.bounds.y);
-            result.right = Math.max(
-                result.right,
-                display.bounds.x + display.bounds.width,
-            );
-            result.bottom = Math.max(
-                result.bottom,
-                display.bounds.y + display.bounds.height,
-            );
-            return result;
-        },
-        {
-            x: Number.POSITIVE_INFINITY,
-            y: Number.POSITIVE_INFINITY,
-            right: Number.NEGATIVE_INFINITY,
-            bottom: Number.NEGATIVE_INFINITY,
-        },
-    );
-
-    return {
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.right - bounds.x,
-        height: bounds.bottom - bounds.y,
-    };
-}
-
 function showClipWindow(win: BrowserWindow) {
     if (win.isDestroyed()) return;
     if (!dev) win.setAlwaysOnTop(true, "screen-saver");
@@ -2130,6 +2159,92 @@ async function hideClipWindowForPrepare(win: BrowserWindow) {
     });
 }
 
+async function parkClipWindow(win: BrowserWindow | null | undefined) {
+    if (!win || win.isDestroyed()) return;
+    clipSessionActive = false;
+    if (process.platform !== "win32") {
+        if (win.isVisible()) win.hide();
+        return;
+    }
+    win.setIgnoreMouseEvents(true);
+    win.setAlwaysOnTop(false);
+    const hwnd = getWin32HwndString(win);
+    if (hwnd && hwnd !== "0") {
+        await sendWinRectCommand(`place:${hwnd}:-32000:-32000:1:1:0`, 200);
+    }
+    if (!win.isVisible()) {
+        await ensureWin32NoAnimation(win, true);
+        win.showInactive();
+        if (hwnd && hwnd !== "0") {
+            await sendWinRectCommand(`place:${hwnd}:-32000:-32000:1:1:0`, 200);
+        }
+    }
+}
+
+async function placeWin32WindowPhysical(
+    win: BrowserWindow,
+    rect: NativeMonitorRect,
+    topmost: boolean,
+) {
+    const hwnd = getWin32HwndString(win);
+    if (!hwnd || hwnd === "0") return;
+    const ack = await sendWinRectCommand(
+        `place:${hwnd}:${Math.round(rect.x)}:${Math.round(rect.y)}:${Math.max(1, Math.round(rect.w))}:${Math.max(1, Math.round(rect.h))}:${topmost ? 1 : 0}`,
+        220,
+    );
+    if (ack === null) {
+        await ensureWin32NoAnimation(win, true);
+        win.setBounds(
+            {
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.max(1, Math.round(rect.w)),
+                height: Math.max(1, Math.round(rect.h)),
+            },
+            false,
+        );
+    }
+}
+
+function matchDisplayPhysicalRect(
+    display: Electron.Display,
+    monitors: NativeMonitorRect[],
+): NativeMonitorRect {
+    const nativeX = display.nativeOrigin?.x;
+    const nativeY = display.nativeOrigin?.y;
+    if (typeof nativeX === "number" && typeof nativeY === "number") {
+        const byOrigin = monitors.find(
+            (m) => Math.abs(m.x - nativeX) <= 8 && Math.abs(m.y - nativeY) <= 8,
+        );
+        if (byOrigin) return byOrigin;
+    }
+    const approxW = Math.round(display.size.width * display.scaleFactor);
+    const approxH = Math.round(display.size.height * display.scaleFactor);
+    const approxX =
+        typeof nativeX === "number"
+            ? nativeX
+            : Math.round(display.bounds.x * display.scaleFactor);
+    const approxY =
+        typeof nativeY === "number"
+            ? nativeY
+            : Math.round(display.bounds.y * display.scaleFactor);
+    let best: NativeMonitorRect | null = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const m of monitors) {
+        const d =
+            Math.abs(m.x - approxX) +
+            Math.abs(m.y - approxY) +
+            Math.abs(m.w - approxW) * 0.5 +
+            Math.abs(m.h - approxH) * 0.5;
+        if (d < bestDist) {
+            bestDist = d;
+            best = m;
+        }
+    }
+    if (best && bestDist <= 64) return best;
+    return { x: approxX, y: approxY, w: approxW, h: approxH };
+}
+
 async function fullScreen(displayId?: number) {
     const nearestScreen =
         (displayId !== undefined
@@ -2138,6 +2253,21 @@ async function fullScreen(displayId?: number) {
         screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     const win = await getClipWin();
     win.webContents.setZoomFactor(1.0);
+    clipSessionActive = true;
+    win.setIgnoreMouseEvents(false);
+    if (process.platform === "win32") {
+        const snap = await queryWin32Snapshot(process.pid);
+        const monPhys = matchDisplayPhysicalRect(nearestScreen, snap.monitors);
+        lastClipDisplayId = nearestScreen.id;
+        lastClipMonPhys = monPhys;
+        await placeWin32WindowPhysical(win, monPhys, true);
+        if (!dev) win.setAlwaysOnTop(true, "screen-saver");
+        if (!win.isVisible()) win.show();
+        win.moveTop();
+        win.focus();
+        win.webContents.focus();
+        return;
+    }
     const b = win.getBounds();
     if (
         b.x !== nearestScreen.bounds.x ||
@@ -2153,11 +2283,7 @@ async function fullScreen(displayId?: number) {
         });
     }
     if (!dev) win.setAlwaysOnTop(true, "screen-saver");
-    if (process.platform === "win32") {
-        await ensureWin32NoAnimation(win, true);
-    } else {
-        win.setSimpleFullScreen(true);
-    }
+    win.setSimpleFullScreen(true);
     win.show();
     win.moveTop();
     win.focus();
@@ -2283,17 +2409,21 @@ function resolveWinRectExePath(): string | null {
         if (needCompile) {
             try {
                 mkdirSync(dirname(devOutExe), { recursive: true });
-                execFileSync(
-                    csc,
-                    [
-                        "/nologo",
-                        "/optimize+",
-                        "/target:exe",
-                        `/out:${devOutExe}`,
-                        csPath,
-                    ],
-                    { stdio: "ignore", windowsHide: true },
-                );
+                const wpfDir = join(dirname(csc), "WPF");
+                const cscArgs = ["/nologo", "/optimize+", "/target:exe"];
+                for (const dll of [
+                    "UIAutomationClient.dll",
+                    "UIAutomationTypes.dll",
+                    "WindowsBase.dll",
+                ]) {
+                    const dllPath = join(wpfDir, dll);
+                    if (existsSync(dllPath)) cscArgs.push(`/r:${dllPath}`);
+                }
+                cscArgs.push(`/out:${devOutExe}`, csPath);
+                execFileSync(csc, cscArgs, {
+                    stdio: "ignore",
+                    windowsHide: true,
+                });
             } catch {}
         }
     }
@@ -2353,23 +2483,32 @@ app.on("will-quit", () => {
     }
 });
 
-async function queryWin32Rects(
+async function queryWin32Snapshot(
     skipPid: number,
     clipHwnd = "",
-): Promise<NativeWinRect[]> {
-    if (process.platform !== "win32") return [];
-    const payload = clipHwnd ? `${skipPid}|${clipHwnd}` : `${skipPid}`;
+): Promise<{ monitors: NativeMonitorRect[]; windows: NativeWinRect[] }> {
+    if (process.platform !== "win32") return { monitors: [], windows: [] };
+    const payload = clipHwnd
+        ? `snapshot:${skipPid}|${clipHwnd}`
+        : `snapshot:${skipPid}`;
     const line = await sendWinRectCommand(payload, 350);
     if (line !== null) {
-        if (!line) return [];
+        if (!line) return { monitors: [], windows: [] };
         try {
-            return JSON.parse(line) as NativeWinRect[];
+            const parsed = JSON.parse(line) as {
+                monitors?: NativeMonitorRect[];
+                windows?: NativeWinRect[];
+            };
+            return {
+                monitors: Array.isArray(parsed.monitors) ? parsed.monitors : [],
+                windows: Array.isArray(parsed.windows) ? parsed.windows : [],
+            };
         } catch {
-            return [];
+            return { monitors: [], windows: [] };
         }
     }
     const exe = resolveWinRectExePath();
-    if (!exe) return [];
+    if (!exe) return { monitors: [], windows: [] };
     try {
         if (clipHwnd) {
             await new Promise<void>((resolveDone) => {
@@ -2386,7 +2525,26 @@ async function queryWin32Rects(
             timeout: 800,
             windowsHide: true,
         });
-        return JSON.parse(out.trim()) as NativeWinRect[];
+        return {
+            monitors: [],
+            windows: JSON.parse(out.trim()) as NativeWinRect[],
+        };
+    } catch {
+        return { monitors: [], windows: [] };
+    }
+}
+
+async function queryWin32UiaRects(
+    skipPid: number,
+    mon: NativeMonitorRect,
+): Promise<NativeWinRect[]> {
+    if (process.platform !== "win32") return [];
+    const cmd = `uia:${skipPid}:${Math.round(mon.x)}:${Math.round(mon.y)}:${Math.max(1, Math.round(mon.w))}:${Math.max(1, Math.round(mon.h))}`;
+    const line = await sendWinRectCommand(cmd, 320);
+    if (!line) return [];
+    try {
+        const parsed = JSON.parse(line);
+        return Array.isArray(parsed) ? (parsed as NativeWinRect[]) : [];
     } catch {
         return [];
     }
@@ -2397,14 +2555,62 @@ async function sendCaptureEvent(data?: Buffer, type?: 功能) {
     const targetDisplay = screen.getDisplayNearestPoint(cursorAbs);
     const win = await getClipWin();
     const session = ++clipSession;
-    await hideClipWindowForPrepare(win);
-    win.setBounds(getVirtualDisplayBounds(), false);
-    if (data && process.platform === "win32") {
-        await ensureWin32NoAnimation(win, true);
+
+    if (process.platform === "win32") {
+        if (clipSessionActive) {
+            mainSend(win.webContents, "clip_reset", []);
+            await parkClipWindow(win);
+            await new Promise((r) => setTimeout(r, 16));
+        } else {
+            win.setIgnoreMouseEvents(true);
+        }
+
+        const snapshot = await queryWin32Snapshot(
+            process.pid,
+            getWin32HwndString(win),
+        );
+        if (session !== clipSession || !isClipWinHealthy(win)) return;
+
+        const targetMonPhys = matchDisplayPhysicalRect(
+            targetDisplay,
+            snapshot.monitors,
+        );
+        const displayChanged = lastClipDisplayId !== targetDisplay.id;
+        lastClipDisplayId = targetDisplay.id;
+        lastClipMonPhys = targetMonPhys;
+        lastClipHasImgBuffer = Boolean(data);
+
+        await placeWin32WindowPhysical(win, targetMonPhys, true);
+        if (!win.isVisible()) {
+            win.showInactive();
+            await placeWin32WindowPhysical(win, targetMonPhys, true);
+        }
+        if (displayChanged) {
+            await new Promise((r) => setTimeout(r, 20));
+        }
+        if (session !== clipSession || !isClipWinHealthy(win)) return;
+
+        win.webContents.setZoomFactor(1.0);
+        mainSend(win.webContents, "clip_init", [
+            screen.getAllDisplays(),
+            data,
+            targetDisplay.id,
+            type,
+            process.pid,
+            data ? undefined : snapshot.windows,
+            {
+                x: cursorAbs.x - targetDisplay.bounds.x,
+                y: cursorAbs.y - targetDisplay.bounds.y,
+            },
+            session,
+            snapshot.monitors,
+        ]);
+        return;
     }
-    const nativeWinRects = data
-        ? undefined
-        : await queryWin32Rects(process.pid, getWin32HwndString(win));
+
+    lastClipHasImgBuffer = Boolean(data);
+    await hideClipWindowForPrepare(win);
+    win.setBounds(targetDisplay.bounds, false);
     win.webContents.setZoomFactor(1.0);
     mainSend(win.webContents, "clip_init", [
         screen.getAllDisplays(),
@@ -2412,18 +2618,20 @@ async function sendCaptureEvent(data?: Buffer, type?: 功能) {
         targetDisplay.id,
         type,
         process.pid,
-        nativeWinRects,
+        undefined,
         {
             x: cursorAbs.x - targetDisplay.bounds.x,
             y: cursorAbs.y - targetDisplay.bounds.y,
         },
         session,
+        undefined,
     ]);
 }
 
 /** 关闭或隐藏截屏 */
 function exitFullScreen() {
     closeLongControl();
+    clipSessionActive = false;
     if (keepClip) {
         if (isClipWinHealthy(clipWindow)) {
             if (
@@ -2432,8 +2640,12 @@ function exitFullScreen() {
             ) {
                 clipWindow.setSimpleFullScreen(false);
             }
-            clipWindow.hide();
             mainSend(clipWindow.webContents, "clip_reset", []);
+            if (process.platform === "win32") {
+                void parkClipWindow(clipWindow);
+            } else {
+                clipWindow.hide();
+            }
         } else {
             destroyClipWindow();
             clipWindow = createClipWindow();
@@ -2445,14 +2657,16 @@ function exitFullScreen() {
 
 /** 隐藏截屏窗口 */
 function hideClip() {
-    if (
-        clipWindow &&
-        process.platform !== "win32" &&
-        clipWindow.isSimpleFullScreen()
-    ) {
+    clipSessionActive = false;
+    if (!clipWindow || clipWindow.isDestroyed()) return;
+    if (process.platform === "win32") {
+        void parkClipWindow(clipWindow);
+        return;
+    }
+    if (clipWindow.isSimpleFullScreen()) {
         clipWindow.setSimpleFullScreen(false);
     }
-    clipWindow?.hide();
+    clipWindow.hide();
 }
 
 /** 快速截屏 */
@@ -2773,7 +2987,7 @@ mainOn("setting_quick_action", ([action]) => {
     }
 });
 mainOn("reloadMainFromSetting", () => {
-    if (!clipWindow?.isVisible()) {
+    if (!clipSessionActive) {
         destroyClipWindow();
         if (keepClip) {
             clipWindow = createClipWindow();
@@ -4305,6 +4519,12 @@ function ensureDefaultOfflineTranslator() {
     }
     if (store.get("框选.动画") === undefined) {
         store.set("框选.动画", defaultSetting.框选.动画);
+    }
+    if (store.get("框选.识别窗口元素") === undefined) {
+        store.set("框选.识别窗口元素", true);
+    }
+    if (!store.get("渲染模式")) {
+        store.set("渲染模式", defaultSetting.渲染模式);
     }
     if (store.get("工具栏.稍后出现") === false) {
         store.set("工具栏.稍后出现", true);

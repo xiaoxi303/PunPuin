@@ -206,6 +206,7 @@ const defaultSetting: setting = {
             最大阈值: 150,
         },
         识别窗口: true,
+        识别窗口元素: true,
         记忆: { 开启: false, rects: {} },
         颜色: {
             遮罩: "rgba(10, 14, 24, 0.48)",
@@ -410,6 +411,7 @@ const defaultSetting: setting = {
     主页面大小: [800, 600, false],
     时间格式: "MM/DD hh:mm:ss",
     硬件加速: true,
+    渲染模式: process.platform === "win32" ? "d3d11" : "auto",
     更新: {
         检查更新: false,
         频率: "start",

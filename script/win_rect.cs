@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Windows;
+using System.Windows.Automation;
 
 class WinRectProgram
 {
@@ -14,13 +17,37 @@ class WinRectProgram
         public int Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    struct TopWinEntry
+    {
+        public IntPtr Hwnd;
+        public uint Pid;
+        public RECT Rect;
+        public int Order;
+    }
+
     delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
 
     [DllImport("user32.dll")]
     static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
     [DllImport("user32.dll")]
     static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     [DllImport("user32.dll")]
     static extern bool IsWindowVisible(IntPtr hWnd);
@@ -85,6 +112,9 @@ class WinRectProgram
     const int WS_EX_TRANSPARENT = 0x00000020;
     const int WS_EX_LAYERED = 0x00080000;
     const int WS_EX_NOACTIVATE = 0x08000000;
+    const uint SWP_NOACTIVATE = 0x0010;
+    const uint SWP_SHOWWINDOW = 0x0040;
+    const uint SWP_NOSENDCHANGING = 0x0400;
     const uint WDA_NONE = 0x00000000;
     const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
     const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
@@ -116,6 +146,21 @@ class WinRectProgram
                     SetWindowLong(hWnd, GWL_EXSTYLE, nextEx);
                 }
             }
+            DwmFlush();
+        }
+        catch { }
+    }
+
+    static void PlaceWindowPhysical(long hwndVal, int x, int y, int w, int h, bool topmost)
+    {
+        if (hwndVal == 0) return;
+        try
+        {
+            ApplyNoAnimation(hwndVal, true);
+            IntPtr hWnd = new IntPtr(hwndVal);
+            IntPtr insertAfter = new IntPtr(topmost ? -1 : 1);
+            uint flags = SWP_NOACTIVATE | SWP_NOSENDCHANGING | (topmost ? SWP_SHOWWINDOW : 0u);
+            SetWindowPos(hWnd, insertAfter, x, y, Math.Max(1, w), Math.Max(1, h), flags);
             DwmFlush();
         }
         catch { }
@@ -163,8 +208,42 @@ class WinRectProgram
         return GetWindowRect(hWnd, out rect) && rect.Right > rect.Left && rect.Bottom > rect.Top;
     }
 
-    static string QueryWindowsJson(uint skipPid)
+    static string QueryMonitorsJson()
     {
+        var sb = new StringBuilder(512);
+        sb.Append('[');
+        bool first = true;
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMon, IntPtr hdc, ref RECT rc, IntPtr data) =>
+        {
+            MONITORINFO mi = new MONITORINFO();
+            mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(hMon, ref mi)) return true;
+            int mx = mi.rcMonitor.Left;
+            int my = mi.rcMonitor.Top;
+            int mw = mi.rcMonitor.Right - mi.rcMonitor.Left;
+            int mh = mi.rcMonitor.Bottom - mi.rcMonitor.Top;
+            if (mw <= 0 || mh <= 0) return true;
+            if (!first) sb.Append(',');
+            first = false;
+            sb.Append("{\"x\":").Append(mx)
+              .Append(",\"y\":").Append(my)
+              .Append(",\"w\":").Append(mw)
+              .Append(",\"h\":").Append(mh)
+              .Append(",\"workX\":").Append(mi.rcWork.Left)
+              .Append(",\"workY\":").Append(mi.rcWork.Top)
+              .Append(",\"workW\":").Append(mi.rcWork.Right - mi.rcWork.Left)
+              .Append(",\"workH\":").Append(mi.rcWork.Bottom - mi.rcWork.Top)
+              .Append(",\"primary\":").Append((mi.dwFlags & 1) != 0 ? "true" : "false")
+              .Append('}');
+            return true;
+        }, IntPtr.Zero);
+        sb.Append(']');
+        return sb.ToString();
+    }
+
+    static List<TopWinEntry> EnumTopVisibleWindows(uint skipPid, out string windowsJson)
+    {
+        var topList = new List<TopWinEntry>();
         var sb = new StringBuilder(4096);
         sb.Append('[');
         bool first = true;
@@ -229,6 +308,7 @@ class WinRectProgram
             bool zoomed = IsZoomed(hWnd);
             string displayTitle = isTaskbar ? "任务栏" : title;
             int curOrder = order++;
+            topList.Add(new TopWinEntry { Hwnd = hWnd, Pid = pid, Rect = r, Order = curOrder });
 
             if (!first) sb.Append(',');
             first = false;
@@ -251,7 +331,7 @@ class WinRectProgram
                 var seenRects = new List<RECT>();
                 EnumChildWindows(hWnd, (cHwnd, cParam) =>
                 {
-                    if (childCount >= 20) return false;
+                    if (childCount >= 24) return false;
                     if (!IsWindowVisible(cHwnd)) return true;
                     RECT cr;
                     if (!GetWindowRect(cHwnd, out cr)) return true;
@@ -261,12 +341,12 @@ class WinRectProgram
                     int cy1 = Math.Min(r.Bottom, cr.Bottom);
                     int cw = cx1 - cx0;
                     int ch = cy1 - cy0;
-                    if (cw < 56 || ch < 34) return true;
-                    if (cw >= w - 14 && ch >= h - 14) return true;
+                    if (cw < 40 || ch < 24) return true;
+                    if (cw >= w - 12 && ch >= h - 12) return true;
                     foreach (var sr in seenRects)
                     {
-                        if (Math.Abs(sr.Left - cx0) <= 6 && Math.Abs(sr.Top - cy0) <= 6 &&
-                            Math.Abs((sr.Right - sr.Left) - cw) <= 6 && Math.Abs((sr.Bottom - sr.Top) - ch) <= 6)
+                        if (Math.Abs(sr.Left - cx0) <= 5 && Math.Abs(sr.Top - cy0) <= 5 &&
+                            Math.Abs((sr.Right - sr.Left) - cw) <= 5 && Math.Abs((sr.Bottom - sr.Top) - ch) <= 5)
                         {
                             return true;
                         }
@@ -291,6 +371,212 @@ class WinRectProgram
 
             return true;
         }, IntPtr.Zero);
+
+        sb.Append(']');
+        windowsJson = sb.ToString();
+        return topList;
+    }
+
+    static string QueryWindowsJson(uint skipPid)
+    {
+        string json;
+        EnumTopVisibleWindows(skipPid, out json);
+        return json;
+    }
+
+    static string QuerySnapshotJson(uint skipPid)
+    {
+        string wins;
+        EnumTopVisibleWindows(skipPid, out wins);
+        string mons = QueryMonitorsJson();
+        return "{\"monitors\":" + mons + ",\"windows\":" + wins + "}";
+    }
+
+    static string MapControlRole(ControlType ct)
+    {
+        if (ct == null) return "";
+        if (ct == ControlType.Button || ct == ControlType.SplitButton) return "按钮";
+        if (ct == ControlType.Edit || ct == ControlType.ComboBox || ct == ControlType.Spinner) return "输入框";
+        if (ct == ControlType.TabItem) return "标签页";
+        if (ct == ControlType.ToolBar || ct == ControlType.MenuBar) return "工具栏";
+        if (ct == ControlType.MenuItem || ct == ControlType.Menu) return "菜单";
+        if (ct == ControlType.ListItem || ct == ControlType.TreeItem || ct == ControlType.DataItem) return "列表项";
+        if (ct == ControlType.Image) return "图片";
+        if (ct == ControlType.CheckBox || ct == ControlType.RadioButton) return "选项";
+        if (ct == ControlType.Hyperlink) return "链接";
+        if (ct == ControlType.Tab || ct == ControlType.List || ct == ControlType.Tree || ct == ControlType.Table || ct == ControlType.DataGrid) return "列表区";
+        if (ct == ControlType.Group || ct == ControlType.Pane || ct == ControlType.Document || ct == ControlType.StatusBar || ct == ControlType.Header) return "面板";
+        return "";
+    }
+
+    static bool IsOccludedByHigherWindows(List<TopWinEntry> topWins, int winIdx, int cx, int cy)
+    {
+        for (int i = 0; i < winIdx; i++)
+        {
+            RECT hr = topWins[i].Rect;
+            if (cx >= hr.Left && cx <= hr.Right && cy >= hr.Top && cy <= hr.Bottom)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static string QueryUiaElementsJson(uint skipPid, int monX, int monY, int monW, int monH)
+    {
+        var sb = new StringBuilder(4096);
+        sb.Append('[');
+        bool first = true;
+        try
+        {
+            string dummy;
+            var topWins = EnumTopVisibleWindows(skipPid, out dummy);
+            var sw = Stopwatch.StartNew();
+            var cacheReq = new CacheRequest();
+            cacheReq.Add(AutomationElement.BoundingRectangleProperty);
+            cacheReq.Add(AutomationElement.ControlTypeProperty);
+            cacheReq.Add(AutomationElement.NameProperty);
+            cacheReq.Add(AutomationElement.IsOffscreenProperty);
+            cacheReq.TreeScope = TreeScope.Element;
+            cacheReq.TreeFilter = Automation.ControlViewCondition;
+
+            int monR = monX + monW;
+            int monB = monY + monH;
+            int inspectedWins = 0;
+            int nextSyntheticId = 1;
+
+            for (int wIdx = 0; wIdx < topWins.Count && inspectedWins < 5; wIdx++)
+            {
+                if (sw.ElapsedMilliseconds > 165) break;
+                TopWinEntry tw = topWins[wIdx];
+                int ix0 = Math.Max(monX, tw.Rect.Left);
+                int iy0 = Math.Max(monY, tw.Rect.Top);
+                int ix1 = Math.Min(monR, tw.Rect.Right);
+                int iy1 = Math.Min(monB, tw.Rect.Bottom);
+                if (ix1 - ix0 < 40 || iy1 - iy0 < 30) continue;
+
+                inspectedWins++;
+                int winW = tw.Rect.Right - tw.Rect.Left;
+                int winH = tw.Rect.Bottom - tw.Rect.Top;
+                var seen = new List<RECT>();
+                var queue = new Queue<KeyValuePair<AutomationElement, int>>();
+
+                try
+                {
+                    using (cacheReq.Activate())
+                    {
+                        var root = AutomationElement.FromHandle(tw.Hwnd);
+                        if (root == null) continue;
+                        queue.Enqueue(new KeyValuePair<AutomationElement, int>(root, 0));
+                        int visited = 0;
+
+                        while (queue.Count > 0 && visited < 260 && sw.ElapsedMilliseconds <= 175)
+                        {
+                            var pair = queue.Dequeue();
+                            visited++;
+                            AutomationElement cur = pair.Key;
+                            int depth = pair.Value;
+
+                            if (depth > 0)
+                            {
+                                try
+                                {
+                                    if (!cur.Cached.IsOffscreen)
+                                    {
+                                        Rect br = cur.Cached.BoundingRectangle;
+                                        if (!br.IsEmpty && !double.IsInfinity(br.Width) && !double.IsNaN(br.Width))
+                                        {
+                                            int ex0 = Math.Max(ix0, (int)Math.Round(br.Left));
+                                            int ey0 = Math.Max(iy0, (int)Math.Round(br.Top));
+                                            int ex1 = Math.Min(ix1, (int)Math.Round(br.Right));
+                                            int ey1 = Math.Min(iy1, (int)Math.Round(br.Bottom));
+                                            int ew = ex1 - ex0;
+                                            int eh = ey1 - ey0;
+
+                                            if (ew >= 18 && eh >= 14 && !(ew >= winW - 10 && eh >= winH - 10))
+                                            {
+                                                int midX = ex0 + ew / 2;
+                                                int midY = ey0 + eh / 2;
+                                                if (!IsOccludedByHigherWindows(topWins, wIdx, midX, midY))
+                                                {
+                                                    string role = MapControlRole(cur.Cached.ControlType);
+                                                    if (!string.IsNullOrEmpty(role))
+                                                    {
+                                                        bool dup = false;
+                                                        for (int s = 0; s < seen.Count; s++)
+                                                        {
+                                                            RECT sr = seen[s];
+                                                            if (Math.Abs(sr.Left - ex0) <= 4 && Math.Abs(sr.Top - ey0) <= 4 &&
+                                                                Math.Abs((sr.Right - sr.Left) - ew) <= 4 && Math.Abs((sr.Bottom - sr.Top) - eh) <= 4)
+                                                            {
+                                                                dup = true;
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (!dup && seen.Count < 90)
+                                                        {
+                                                            seen.Add(new RECT { Left = ex0, Top = ey0, Right = ex1, Bottom = ey1 });
+                                                            string rawName = (cur.Cached.Name ?? "").Trim();
+                                                            if (rawName.Length > 22) rawName = rawName.Substring(0, 22) + "…";
+                                                            string label = string.IsNullOrEmpty(rawName) ? role : (role + " · " + rawName);
+                                                            if (!first) sb.Append(',');
+                                                            first = false;
+                                                            sb.Append("{\"id\":").Append(900000 + (nextSyntheticId++))
+                                                              .Append(",\"pid\":").Append(tw.Pid)
+                                                              .Append(",\"parentId\":").Append(tw.Hwnd.ToInt64())
+                                                              .Append(",\"x\":").Append(ex0)
+                                                              .Append(",\"y\":").Append(ey0)
+                                                              .Append(",\"w\":").Append(ew)
+                                                              .Append(",\"h\":").Append(eh)
+                                                              .Append(",\"z\":").Append(10000 - tw.Order)
+                                                              .Append(",\"order\":").Append(tw.Order)
+                                                              .Append(",\"max\":false,\"child\":true,\"uia\":true")
+                                                              .Append(",\"role\":\"").Append(EscapeJson(role)).Append('"')
+                                                              .Append(",\"cls\":\"\",\"title\":\"").Append(EscapeJson(label)).Append("\"}");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+
+                            if (depth < 8 && sw.ElapsedMilliseconds <= 170)
+                            {
+                                try
+                                {
+                                    AutomationElementCollection kids = cur.FindAll(TreeScope.Children, Automation.ControlViewCondition);
+                                    if (kids != null)
+                                    {
+                                        int kCount = Math.Min(kids.Count, 48);
+                                        for (int k = 0; k < kCount; k++)
+                                        {
+                                            AutomationElement child = kids[k];
+                                            if (child == null) continue;
+                                            try
+                                            {
+                                                Rect cbr = child.Cached.BoundingRectangle;
+                                                if (!cbr.IsEmpty && (cbr.Right <= ix0 || cbr.Left >= ix1 || cbr.Bottom <= iy0 || cbr.Top >= iy1))
+                                                {
+                                                    continue;
+                                                }
+                                            }
+                                            catch { }
+                                            queue.Enqueue(new KeyValuePair<AutomationElement, int>(child, depth + 1));
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+        catch { }
 
         sb.Append(']');
         return sb.ToString();
@@ -362,6 +648,27 @@ class WinRectProgram
                     Console.Out.Flush();
                     continue;
                 }
+                if (trimmed.StartsWith("place:"))
+                {
+                    string[] parts = trimmed.Substring(6).Split(':');
+                    if (parts.Length >= 6)
+                    {
+                        long h;
+                        int px, py, pw, ph, top;
+                        if (long.TryParse(parts[0], out h) &&
+                            int.TryParse(parts[1], out px) &&
+                            int.TryParse(parts[2], out py) &&
+                            int.TryParse(parts[3], out pw) &&
+                            int.TryParse(parts[4], out ph) &&
+                            int.TryParse(parts[5], out top))
+                        {
+                            PlaceWindowPhysical(h, px, py, pw, ph, top == 1);
+                        }
+                    }
+                    Console.WriteLine("ok");
+                    Console.Out.Flush();
+                    continue;
+                }
                 if (trimmed.StartsWith("exclude:"))
                 {
                     string rest = trimmed.Substring(8);
@@ -379,6 +686,45 @@ class WinRectProgram
                     Console.Out.Flush();
                     continue;
                 }
+                if (trimmed.StartsWith("snapshot:"))
+                {
+                    string rest = trimmed.Substring(9);
+                    uint reqPid = skipPid;
+                    int sepIdx = rest.IndexOf('|');
+                    if (sepIdx >= 0)
+                    {
+                        uint pPid;
+                        if (uint.TryParse(rest.Substring(0, sepIdx), out pPid)) reqPid = pPid;
+                        long clipH;
+                        if (long.TryParse(rest.Substring(sepIdx + 1), out clipH)) ApplyNoAnimation(clipH, true);
+                    }
+                    else
+                    {
+                        uint pPid;
+                        if (uint.TryParse(rest, out pPid)) reqPid = pPid;
+                    }
+                    Console.WriteLine(QuerySnapshotJson(reqPid));
+                    Console.Out.Flush();
+                    continue;
+                }
+                if (trimmed.StartsWith("uia:"))
+                {
+                    string[] parts = trimmed.Substring(4).Split(':');
+                    uint reqPid = skipPid;
+                    int mx = 0, my = 0, mw = 2560, mh = 1440;
+                    if (parts.Length >= 5)
+                    {
+                        uint.TryParse(parts[0], out reqPid);
+                        int.TryParse(parts[1], out mx);
+                        int.TryParse(parts[2], out my);
+                        int.TryParse(parts[3], out mw);
+                        int.TryParse(parts[4], out mh);
+                    }
+                    Console.WriteLine(QueryUiaElementsJson(reqPid, mx, my, mw, mh));
+                    Console.Out.Flush();
+                    continue;
+                }
+
                 uint reqSkip = skipPid;
                 int sep = trimmed.IndexOf('|');
                 if (sep >= 0)

@@ -67,6 +67,7 @@ module.exports = {
             最大阈值: 150,
         },
         识别窗口: true,
+        识别窗口元素: true,
         记忆: { 开启: false, rects: {} },
         颜色: {
             遮罩: "#0008",

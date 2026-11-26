@@ -79,6 +79,7 @@ import {
     view,
 } from "dkh-ui";
 import {
+    type NativeMonitorRect,
     type NativeWinRect,
     renderOn,
     renderSend,
@@ -874,6 +875,47 @@ function refineWin32WindowBounds(
 }
 
 let nativeWinRects: NativeWinRect[] = [];
+let nativeMonitors: NativeMonitorRect[] = [];
+let nativeUiaRects: NativeWinRect[] = [];
+
+function getScreenPhysicalOrigin(
+    screenItem:
+        | {
+              id: number;
+              bounds: { x: number; y: number; width: number; height: number };
+          }
+        | undefined,
+    scaleX: number,
+    scaleY: number,
+): { x: number; y: number } {
+    if (!screenItem) return { x: 0, y: 0 };
+    const disp = currentDisplays.find((d) => d.id === screenItem.id);
+    const nativeX = disp?.nativeOrigin?.x;
+    const nativeY = disp?.nativeOrigin?.y;
+    if (typeof nativeX === "number" && typeof nativeY === "number") {
+        const matched = nativeMonitors.find(
+            (m) => Math.abs(m.x - nativeX) <= 8 && Math.abs(m.y - nativeY) <= 8,
+        );
+        if (matched) return { x: matched.x, y: matched.y };
+        return { x: nativeX, y: nativeY };
+    }
+    if (screenItem.bounds.x === 0 && screenItem.bounds.y === 0) {
+        return { x: 0, y: 0 };
+    }
+    const approxW = mainCanvas.width;
+    const approxH = mainCanvas.height;
+    const bySize = nativeMonitors.find(
+        (m) =>
+            !(m.x === 0 && m.y === 0) &&
+            Math.abs(m.w - approxW) <= 4 &&
+            Math.abs(m.h - approxH) <= 4,
+    );
+    if (bySize) return { x: bySize.x, y: bySize.y };
+    return {
+        x: Math.round(screenItem.bounds.x * scaleX),
+        y: Math.round(screenItem.bounds.y * scaleY),
+    };
+}
 
 function getEdgeWorker() {
     if (edgeWorker) return edgeWorker;
@@ -1115,13 +1157,19 @@ function getWin() {
     const scaleY =
         bounds.height > 0 ? mainCanvas.height / bounds.height : ratio || 1;
 
-    // Windows 优先使用原生 DWM 物理像素窗口枚举（精准无 7px 虚边、支持管理员窗口、排除挂起 UWP 幽灵窗与带真实子面板）
+    // Windows 优先使用原生 DWM 物理像素窗口与 UI Automation 元素枚举（多屏混合缩放 0px 误差、支持管理员窗口与窗口内控件智能识别）
     if (nativeWinRects.length > 0) {
-        const monPhysX = bounds.x === 0 ? 0 : Math.round(bounds.x * scaleX);
-        const monPhysY = bounds.y === 0 ? 0 : Math.round(bounds.y * scaleY);
+        const monOrigin = getScreenPhysicalOrigin(nowScreen, scaleX, scaleY);
+        const monPhysX = monOrigin.x;
+        const monPhysY = monOrigin.y;
         let zRank = 0;
-        for (const nr of nativeWinRects) {
+        const combined =
+            识别窗口元素 && nativeUiaRects.length > 0
+                ? [...nativeWinRects, ...nativeUiaRects]
+                : nativeWinRects;
+        for (const nr of combined) {
             if (nr.pid === mainPid) continue;
+            if (nr.child && !识别窗口元素) continue;
             const rx = nr.x - monPhysX;
             const ry = nr.y - monPhysY;
             const rw = nr.w;
@@ -1138,7 +1186,7 @@ function getWin() {
             const y = Math.max(0, ry);
             const w = Math.min(rx + rw, mainCanvas.width) - x;
             const h = Math.min(ry + rh, mainCanvas.height) - y;
-            if (w < 24 || h < 24) continue;
+            if (w < 18 || h < 14) continue;
             edgeRect.push({
                 x,
                 y,
@@ -1149,6 +1197,7 @@ function getWin() {
                 winId: nr.id,
                 parentId: nr.parentId,
                 isChild: Boolean(nr.child),
+                isUia: Boolean(nr.uia),
                 label: nr.title || "",
             });
         }
@@ -1289,6 +1338,8 @@ async function closeWin() {
     currentScreenImageData = null;
     mainCanvas.width = drawCanvas.width = mainCanvas.width; // 确保清空画布
     cleanClip();
+    document.body.style.opacity = "0";
+    document.documentElement.style.opacity = "0";
     document.documentElement.style.display = "none";
     记忆框选f();
     stopLongInput();
@@ -3013,14 +3064,18 @@ function inEdge(p: editor_position) {
         }
     }
 
-    const subCandidates: { r: rect; nativeChild: boolean }[] = [];
+    const subCandidates: {
+        r: rect;
+        nativeChild: boolean;
+        label: string;
+    }[] = [];
     const topWinRect: rect | null = topWin
         ? [topWin.x, topWin.y, topWin.width, topWin.height]
         : null;
     const topWinArea = topWin ? topWin.width * topWin.height : 0;
 
-    // 2. 收集该顶层窗口内的原生子面板（Win32 EnumChildWindows）
-    if (识别窗口 && topWin && topWin.winId !== undefined) {
+    // 2. 收集该顶层窗口内的原生子面板与 UI Automation 智能控件
+    if (识别窗口 && 识别窗口元素 && topWin && topWin.winId !== undefined) {
         for (const item of edgeRect) {
             if (
                 item.type !== "system" ||
@@ -3036,18 +3091,19 @@ function inEdge(p: editor_position) {
                 p.y <= item.y + item.height
             ) {
                 const area = item.width * item.height;
-                if (area >= topWinArea * 0.92) continue;
+                if (area >= topWinArea * 0.94) continue;
                 subCandidates.push({
                     r: [item.x, item.y, item.width, item.height],
                     nativeChild: true,
+                    label: item.label || "",
                 });
             }
         }
     }
 
     // 3. 收集通过四边直线性与对比度校验的图像 UI 框
-    const minElemSize = Math.max(20, Math.round(24 * dprScale));
-    const minElemArea = Math.max(800, Math.round(960 * dprScale * dprScale));
+    const minElemSize = Math.max(18, Math.round(20 * dprScale));
+    const minElemArea = Math.max(520, Math.round(640 * dprScale * dprScale));
     for (const item of edgeRect) {
         if (item.type !== "image") continue;
         if (item.width < minElemSize || item.height < minElemSize) continue;
@@ -3096,7 +3152,11 @@ function inEdge(p: editor_position) {
             }
         }
 
-        subCandidates.push({ r: [rx, ry, rw, rh], nativeChild: false });
+        subCandidates.push({
+            r: [rx, ry, rw, rh],
+            nativeChild: false,
+            label: "",
+        });
     }
 
     subCandidates.sort((a, b) => a.r[2] * a.r[3] - b.r[2] * b.r[3]);
@@ -3105,10 +3165,19 @@ function inEdge(p: editor_position) {
     const labels: string[] = [];
     const isNativeFlags: boolean[] = [];
     for (const c of subCandidates) {
-        if (!dedup.some((e) => isNearSameRect(e, c.r, dedupTol))) {
+        const existIdx = dedup.findIndex((e) =>
+            isNearSameRect(e, c.r, dedupTol),
+        );
+        if (existIdx < 0) {
             dedup.push(c.r);
-            labels.push("");
+            labels.push(c.label);
             isNativeFlags.push(c.nativeChild);
+        } else if (c.nativeChild && !isNativeFlags[existIdx]) {
+            dedup[existIdx] = c.r;
+            if (c.label) labels[existIdx] = c.label;
+            isNativeFlags[existIdx] = true;
+        } else if (c.label && !labels[existIdx]) {
+            labels[existIdx] = c.label;
         }
     }
 
@@ -3170,21 +3239,23 @@ function inEdge(p: editor_position) {
     }
 
     if (!hoverWheelLocked) {
-        // 鼠标快速扫过屏幕或悬停在窗口标题栏/边框附近时，直接锁定整个窗口，彻底消除扫过小控件时的闪烁抖动
-        const nearWinEdge =
+        // 鼠标快速扫过屏幕或悬停在窗口极窄外边框上时锁定整窗，正常停驻时智能命中按钮/标签页/面板等窗口元素
+        const nearWinOuterBorder =
             topWin &&
-            (p.y - topWin.y <= 34 * dprScale ||
-                p.x - topWin.x <= 18 * dprScale ||
-                topWin.x + topWin.width - p.x <= 18 * dprScale ||
-                topWin.y + topWin.height - p.y <= 14 * dprScale);
+            (p.y - topWin.y <= 8 * dprScale ||
+                p.x - topWin.x <= 8 * dprScale ||
+                topWin.x + topWin.width - p.x <= 8 * dprScale ||
+                topWin.y + topWin.height - p.y <= 8 * dprScale);
 
-        if (topWinIdx >= 0 && (cursorSpeedPxPerMs > 1.5 || nearWinEdge)) {
+        if (
+            topWinIdx >= 0 &&
+            (cursorSpeedPxPerMs > 1.85 || nearWinOuterBorder || !识别窗口元素)
+        ) {
             hoverLayerIndex = topWinIdx;
         } else if (topWinIdx >= 0) {
-            // 窗口内部默认优先命中原生子面板或结构完整的较大区域（>= 80x44 DIP），更细元素可通过滚轮下切
-            const prefMinW = Math.round(80 * dprScale);
-            const prefMinH = Math.round(44 * dprScale);
-            const prefMinArea = Math.round(6400 * dprScale * dprScale);
+            const prefMinW = Math.round(32 * dprScale);
+            const prefMinH = Math.round(22 * dprScale);
+            const prefMinArea = Math.round(960 * dprScale * dprScale);
             let chosen = dedup.findIndex(
                 (r, idx) =>
                     idx <= topWinIdx &&
@@ -5034,6 +5105,7 @@ let 记忆框选值 = store.get("框选.记忆.rects") as {
     [id: string]: rect;
 };
 let 识别窗口 = store.get("框选.识别窗口");
+let 识别窗口元素 = store.get("框选.识别窗口元素") ?? true;
 let 选区平滑动画 = store.get("框选.动画") ?? true;
 const bSize = store.get("工具栏.按钮大小");
 
@@ -5964,6 +6036,7 @@ const edgeRect: {
     winId?: number;
     parentId?: number;
     isChild?: boolean;
+    isUia?: boolean;
     label?: string;
 }[] = [];
 
@@ -6279,6 +6352,8 @@ let willFilter: EditType["filter"] | "" = "";
 
 // ------
 
+document.documentElement.style.display = "none";
+document.documentElement.style.opacity = "0";
 document.body.style.opacity = "0";
 
 window.addEventListener("resize", () => {
@@ -6318,21 +6393,37 @@ function resetClipSession() {
     oFinalRect = null;
     direction = "";
     drawBarManualMoved = false;
+    lastCursorTs = 0;
+    cursorSpeedPxPerMs = 0;
     记忆框选 = store.get("框选.记忆.开启");
     记忆框选值 = store.get("框选.记忆.rects") as {
         [id: string]: rect;
     };
     识别窗口 = store.get("框选.识别窗口");
+    识别窗口元素 = store.get("框选.识别窗口元素") ?? true;
     setEditType("select", selectEditType);
     document.body.classList.remove("editor_bg");
 }
 
 renderOn("clip_reset", () => {
     activeClipSession = 0;
+    nativeUiaRects = [];
     resetClipSession();
     isShowBars = false;
     showBars(false);
     document.body.style.opacity = "0";
+    document.documentElement.style.opacity = "0";
+    document.documentElement.style.display = "none";
+});
+
+renderOn("clip_uia_rects", ([session, uiaRects]) => {
+    if (session !== activeClipSession || !识别窗口 || !识别窗口元素) return;
+    nativeUiaRects = uiaRects ?? [];
+    getWin();
+    edgeKey = "";
+    if (!rectSelect && !selecting && !drawingMode) {
+        refreshEdgeHint();
+    }
 });
 
 renderOn(
@@ -6346,10 +6437,13 @@ renderOn(
         _nativeWinRects,
         cursorPoint,
         session,
+        _nativeMonitors,
     ]) => {
         const currentSession = session ?? activeClipSession + 1;
         activeClipSession = currentSession;
+        nativeUiaRects = [];
         document.documentElement.style.display = "";
+        document.documentElement.style.opacity = "0";
         document.body.style.opacity = "0";
         toolBar.style.transition = "none";
         drawBar.style.transition = "none";
@@ -6364,13 +6458,11 @@ renderOn(
             });
         }
         resetClipSession();
-        await new Promise<void>((resolveFrame) => {
-            requestAnimationFrame(() => resolveFrame());
-        });
         if (currentSession !== activeClipSession) return;
         currentDisplays = _displays;
         mainPid = pid ?? 0;
         nativeWinRects = _nativeWinRects ?? [];
+        nativeMonitors = _nativeMonitors ?? [];
         const wx = await screenShots(_displays, imgBuffer); // 只是截屏 也可能是小图片
         if (currentSession !== activeClipSession) return;
         allScreens = wx.screen;
@@ -6398,7 +6490,9 @@ renderOn(
             zoomW = i.size.width;
             if (s) ratio = s.scaleFactor;
             else ratio = nowScreen.scaleFactor;
-        } else if (wx.type === "img")
+        } else if (wx.type === "img") {
+            ratio = i.scaleFactor || 1;
+            zoomW = i.size.width / ratio;
             if (
                 i.size.width < nowScreen.size.width ||
                 i.size.height < nowScreen.size.height
@@ -6414,6 +6508,7 @@ renderOn(
                 zoomW = i.size.width;
                 ratio = devicePixelRatio;
             }
+        }
         setEditorP(1 / ratio, 0, 0);
         undoStack.reset({
             rect: finalRect,
@@ -6522,11 +6617,10 @@ renderOn(
             }
         }
 
-        document.body.style.opacity = "";
+        document.body.style.opacity = "1";
+        document.documentElement.style.opacity = "1";
         await new Promise<void>((resolveFrame) => {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => resolveFrame());
-            });
+            requestAnimationFrame(() => resolveFrame());
         });
         if (currentSession !== activeClipSession) return;
         renderSend("clip_show", [currentSession]);

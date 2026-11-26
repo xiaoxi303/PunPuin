@@ -124,6 +124,7 @@ export interface setting {
             最大阈值: number;
         };
         识别窗口: boolean;
+        识别窗口元素: boolean;
         记忆: { 开启: boolean; rects: { [screenId: string]: number[] } };
         颜色: {
             遮罩: string;
@@ -296,6 +297,7 @@ export interface setting {
     主页面大小: [number, number, boolean];
     时间格式: string;
     硬件加速: boolean;
+    渲染模式: "auto" | "d3d11" | "low_power" | "high_performance" | "software";
     更新: {
         检查更新: boolean;
         频率: "manual" | "start";

@@ -442,17 +442,18 @@ const beforePack = async () => {
             ensureDir("./lib");
             const outExe = path.resolve(__dirname, "lib", "win_rect.exe");
             const srcCs = path.resolve(__dirname, "script", "win_rect.cs");
-            execFileSync(
-                csc,
-                [
-                    "/nologo",
-                    "/optimize+",
-                    "/target:exe",
-                    `/out:${outExe}`,
-                    srcCs,
-                ],
-                { stdio: "inherit" },
-            );
+            const wpfDir = path.join(path.dirname(csc), "WPF");
+            const cscArgs = ["/nologo", "/optimize+", "/target:exe"];
+            for (const dll of [
+                "UIAutomationClient.dll",
+                "UIAutomationTypes.dll",
+                "WindowsBase.dll",
+            ]) {
+                const dllPath = path.join(wpfDir, dll);
+                if (fs.existsSync(dllPath)) cscArgs.push(`/r:${dllPath}`);
+            }
+            cscArgs.push(`/out:${outExe}`, srcCs);
+            execFileSync(csc, cscArgs, { stdio: "inherit" });
         }
     }
 

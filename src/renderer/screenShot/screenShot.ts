@@ -26,6 +26,7 @@ type WindowData = {
 
 type ReturnData = {
     bounds: { x: number; y: number; width: number; height: number };
+    physicalBounds: { x: number; y: number; width: number; height: number };
     size: { width: number; height: number };
     scaleFactor: number;
     id: number;
@@ -291,6 +292,12 @@ async function dispaly2screen(
                 width: 0,
                 height: 0,
             },
+            physicalBounds: displays?.[0]?.bounds ?? {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            },
             size: displays?.[0]?.bounds ?? { width: 0, height: 0 },
             scaleFactor: displays?.[0]?.scaleFactor ?? 1,
             id: displays?.[0]?.id ?? -1,
@@ -318,6 +325,12 @@ async function dispaly2screen(
                 const image = data.image;
                 const s = image.getSize();
                 x.bounds = { x: 0, y: 0, width: s.width, height: s.height };
+                x.physicalBounds = {
+                    x: 0,
+                    y: 0,
+                    width: s.width,
+                    height: s.height,
+                };
                 x.size = { width: s.width, height: s.height };
                 x.scaleFactor = 1;
                 return {
@@ -336,6 +349,12 @@ async function dispaly2screen(
             screen: [
                 {
                     bounds: { x: 0, y: 0, width: s.width, height: s.height },
+                    physicalBounds: {
+                        x: 0,
+                        y: 0,
+                        width: s.width,
+                        height: s.height,
+                    },
                     size: { width: s.width, height: s.height },
                     scaleFactor: 1,
                     id: -1,
@@ -367,6 +386,12 @@ async function dispaly2screen(
             for (const d of displays) {
                 const x: ReturnData = {
                     bounds: d.bounds,
+                    physicalBounds: {
+                        x: d.bounds.x * d.scaleFactor,
+                        y: d.bounds.y * d.scaleFactor,
+                        width: d.bounds.width * d.scaleFactor,
+                        height: d.bounds.height * d.scaleFactor,
+                    },
                     size: d.size,
                     scaleFactor: d.scaleFactor,
                     id: d.id,
@@ -414,6 +439,7 @@ async function dispaly2screen(
         else {
             allScreens.push({
                 bounds: { x: 0, y: 0, width: 0, height: 0 },
+                physicalBounds: { x: 0, y: 0, width: 0, height: 0 },
                 size: { width: 0, height: 0 },
                 scaleFactor: 1,
                 id: -1,
@@ -433,6 +459,7 @@ async function dispaly2screen(
     if (screens.length === 0) {
         allScreens.push({
             bounds: { x: 0, y: 0, width: 0, height: 0 },
+            physicalBounds: { x: 0, y: 0, width: 0, height: 0 },
             size: { width: 0, height: 0 },
             scaleFactor: 1,
             id: -1,
@@ -463,6 +490,12 @@ async function dispaly2screen(
 
                 const x: ReturnData = {
                     bounds: display.bounds,
+                    physicalBounds: {
+                        x: matchedScreen.x(),
+                        y: matchedScreen.y(),
+                        width: matchedScreen.width(),
+                        height: matchedScreen.height(),
+                    },
                     size: {
                         width: display.bounds.width,
                         height: display.bounds.height,
@@ -518,6 +551,12 @@ async function dispaly2screen(
                 matchedScreens.add(matchedScreen.id());
                 const x: ReturnData = {
                     bounds: display.bounds,
+                    physicalBounds: {
+                        x: matchedScreen.x(),
+                        y: matchedScreen.y(),
+                        width: matchedScreen.width(),
+                        height: matchedScreen.height(),
+                    },
                     size: {
                         width: display.bounds.width,
                         height: display.bounds.height,
@@ -549,6 +588,12 @@ async function dispaly2screen(
         for (const screen of screens) {
             const x: ReturnData = {
                 bounds: {
+                    x: screen.x(),
+                    y: screen.y(),
+                    width: screen.width(),
+                    height: screen.height(),
+                },
+                physicalBounds: {
                     x: screen.x(),
                     y: screen.y(),
                     width: screen.width(),
