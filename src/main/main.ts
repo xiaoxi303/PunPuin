@@ -1963,9 +1963,20 @@ mainOn("long_compact_end", async () => {
     await fullScreen(displayId);
 });
 
-mainOn("clip_show", ([session]) => {
-    if (session !== clipSession || !isClipWinHealthy(clipWindow)) return;
-    showClipWindow(clipWindow);
+mainOn("clip_show", async ([session]) => {
+    const win = clipWindow;
+    if (session !== clipSession || !isClipWinHealthy(win)) return;
+    try {
+        await win.webContents.capturePage(
+            { x: 0, y: 0, width: 1, height: 1 },
+            { stayHidden: true },
+        );
+    } catch (error) {
+        console.warn("clipWindow first-frame capture failed:", error);
+        return;
+    }
+    if (session !== clipSession || !isClipWinHealthy(win)) return;
+    showClipWindow(win);
 });
 mainOn("clip_close", () => {
     exitFullScreen();
