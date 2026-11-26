@@ -66,7 +66,7 @@ export type NativeWinRect = {
 type Message = {
     clip_ready: () => void;
     clip_reset: () => void;
-    clip_show: () => void;
+    clip_show: (session: number) => void;
     clip_close: () => void;
     copy_image: (buffer: ArrayBuffer, type: string) => void;
     copy_image_file: (buffer: ArrayBuffer, type: string) => void;
@@ -129,6 +129,7 @@ type Message = {
         mainPid?: number,
         nativeWinRects?: NativeWinRect[],
         cursorPoint?: { x: number; y: number },
+        session?: number,
     ) => void;
     open_this_browser: (window_name: number, url: string) => void;
     edit_pic: (img: Buffer<ArrayBufferLike>) => void;

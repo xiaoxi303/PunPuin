@@ -1358,6 +1358,7 @@ let clipWindow: BrowserWindow | null = null;
 let clipWindowLoaded = false;
 let clipReadyWaiters: ((v: BrowserWindow) => void)[] = [];
 let lastClipCrashAt = 0;
+let clipSession = 0;
 
 function markClipReady(win: BrowserWindow) {
     if (!win || win.isDestroyed() || win !== clipWindow) return;
@@ -1416,16 +1417,16 @@ const getClipWin = async (): Promise<BrowserWindow> => {
 /** 初始化截屏后台窗口 */
 function createClipWindow() {
     clipWindowLoaded = false;
-    const primary = screen.getPrimaryDisplay();
+    const bounds = getVirtualDisplayBounds();
     const _clipWindow = new BrowserWindow({
         icon: theIcon,
-        x: primary.bounds.x,
-        y: primary.bounds.y,
-        width: primary.bounds.width,
-        height: primary.bounds.height,
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
         show: false,
-        // ?????????????????????????????????????
         paintWhenInitiallyHidden: true,
+        backgroundColor: "#00000000",
         alwaysOnTop: !dev,
         fullscreenable: true,
         minimizable: false,
@@ -1962,8 +1963,9 @@ mainOn("long_compact_end", async () => {
     await fullScreen(displayId);
 });
 
-mainOn("clip_show", () => {
-    if (isClipWinHealthy(clipWindow)) showClipWindow(clipWindow);
+mainOn("clip_show", ([session]) => {
+    if (session !== clipSession || !isClipWinHealthy(clipWindow)) return;
+    showClipWindow(clipWindow);
 });
 mainOn("clip_close", () => {
     exitFullScreen();
@@ -2097,6 +2099,24 @@ function showClipWindow(win: BrowserWindow) {
     win.moveTop();
     win.focus();
     win.webContents.focus();
+}
+
+async function hideClipWindowForPrepare(win: BrowserWindow) {
+    if (win.isDestroyed() || !win.isVisible()) return;
+
+    await new Promise<void>((resolve) => {
+        let settled = false;
+        const done = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            win.removeListener("hide", done);
+            resolve();
+        };
+        const timer = setTimeout(done, 100);
+        win.once("hide", done);
+        win.hide();
+    });
 }
 
 async function fullScreen(displayId?: number) {
@@ -2365,8 +2385,8 @@ async function sendCaptureEvent(data?: Buffer, type?: 功能) {
     const cursorAbs = screen.getCursorScreenPoint();
     const targetDisplay = screen.getDisplayNearestPoint(cursorAbs);
     const win = await getClipWin();
-    // ???????????????????????????????? clip_show?
-    win.hide();
+    const session = ++clipSession;
+    await hideClipWindowForPrepare(win);
     win.setBounds(getVirtualDisplayBounds(), false);
     if (data && process.platform === "win32") {
         await ensureWin32NoAnimation(win, true);
@@ -2386,6 +2406,7 @@ async function sendCaptureEvent(data?: Buffer, type?: 功能) {
             x: cursorAbs.x - targetDisplay.bounds.x,
             y: cursorAbs.y - targetDisplay.bounds.y,
         },
+        session,
     ]);
 }
 

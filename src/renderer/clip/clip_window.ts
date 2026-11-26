@@ -5936,6 +5936,7 @@ let allScreens: Awaited<ReturnType<typeof screenShots>>["screen"];
 let windows: Awaited<ReturnType<typeof screenShots>>["window"];
 /** 当前截屏会话的显示器信息 */
 let currentDisplays: Electron.Display[] = [];
+let activeClipSession = 0;
 /** 主进程 pid，用于排除应用自身窗口 */
 let mainPid = 0;
 /** 窗口视频源的请求回调 */
@@ -6327,6 +6328,7 @@ function resetClipSession() {
 }
 
 renderOn("clip_reset", () => {
+    activeClipSession = 0;
     resetClipSession();
     isShowBars = false;
     showBars(false);
@@ -6343,7 +6345,10 @@ renderOn(
         pid,
         _nativeWinRects,
         cursorPoint,
+        session,
     ]) => {
+        const currentSession = session ?? activeClipSession + 1;
+        activeClipSession = currentSession;
         document.documentElement.style.display = "";
         document.body.style.opacity = "0";
         toolBar.style.transition = "none";
@@ -6359,10 +6364,15 @@ renderOn(
             });
         }
         resetClipSession();
+        await new Promise<void>((resolveFrame) => {
+            requestAnimationFrame(() => resolveFrame());
+        });
+        if (currentSession !== activeClipSession) return;
         currentDisplays = _displays;
         mainPid = pid ?? 0;
         nativeWinRects = _nativeWinRects ?? [];
         const wx = await screenShots(_displays, imgBuffer); // 只是截屏 也可能是小图片
+        if (currentSession !== activeClipSession) return;
         allScreens = wx.screen;
         const mainId = mainid;
         const i = getNowScreen(mainId);
@@ -6377,6 +6387,7 @@ renderOn(
             ratio = s ? s.scaleFactor : nowScreen.scaleFactor;
         }
         await setScreen(i);
+        if (currentSession !== activeClipSession) return;
         const xy = { x: 0, y: 0 };
         if (wx.type === "normal") {
             ratio = window.devicePixelRatio || i.scaleFactor;
@@ -6513,9 +6524,12 @@ renderOn(
 
         document.body.style.opacity = "";
         await new Promise<void>((resolveFrame) => {
-            requestAnimationFrame(() => resolveFrame());
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolveFrame());
+            });
         });
-        renderSend("clip_show", []);
+        if (currentSession !== activeClipSession) return;
+        renderSend("clip_show", [currentSession]);
         requestAnimationFrame(() => {
             toolBar.style.transition = "";
             drawBar.style.transition = "";
