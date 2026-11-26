@@ -47,6 +47,22 @@ export type RecordRect = {
     r: number;
 };
 
+export type NativeWinRect = {
+    id: number;
+    pid: number;
+    parentId?: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    z: number;
+    order: number;
+    max: boolean;
+    child?: boolean;
+    cls: string;
+    title: string;
+};
+
 type Message = {
     clip_ready: () => void;
     clip_reset: () => void;
@@ -111,6 +127,7 @@ type Message = {
         mainid: number,
         act: 功能 | undefined,
         mainPid?: number,
+        nativeWinRects?: NativeWinRect[],
     ) => void;
     open_this_browser: (window_name: number, url: string) => void;
     edit_pic: (img: Buffer<ArrayBufferLike>) => void;

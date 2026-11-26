@@ -431,6 +431,20 @@ const beforePack = async () => {
             }),
         );
     }
+    if (process.platform === "win32" && checkPath("./script/win_rect.cs")) {
+        const cscCandidates = [
+            "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+            "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe",
+        ];
+        const csc = cscCandidates.find((p) => fs.existsSync(p));
+        if (csc) {
+            ensureDir("./lib");
+            execSync(
+                `"${csc}" /nologo /optimize+ /target:exe /out:./lib/win_rect.exe ./script/win_rect.cs`,
+                { stdio: "inherit" },
+            );
+        }
+    }
 
     await Promise.all(tasks);
 };
@@ -506,6 +520,7 @@ const build = {
         "assets/bergamot/**",
         "assets/logo/**",
         "lib/copy.exe",
+        "lib/win_rect.exe",
     ],
     artifactName: `\${productName}-\${version}-\${platform}-${arch}.\${ext}`,
     beforePack: beforePack,

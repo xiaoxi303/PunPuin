@@ -72,7 +72,8 @@ jobs:
             assets/bergamot
             assets/fonts
             lib/copy.exe
-          key: build-assets-win-x64-${{ hashFiles('package.json', 'electron-builder.config.js') }}
+            lib/win_rect.exe
+          key: build-assets-win-x64-${{ hashFiles('package.json', 'electron-builder.config.js', 'script/win_rect.cs') }}
           restore-keys: |
             build-assets-win-x64-
 

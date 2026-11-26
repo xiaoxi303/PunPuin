@@ -1,7 +1,13 @@
 /// <reference types="vite/client" />
 
 import { Buffer } from "node:buffer";
-import { exec, execFileSync, execSync } from "node:child_process";
+import {
+    type ChildProcessWithoutNullStreams,
+    exec,
+    execFileSync,
+    execSync,
+    spawn,
+} from "node:child_process";
 import {
     existsSync,
     mkdir,
@@ -44,7 +50,7 @@ import {
 import minimist from "minimist";
 import main from "xtranslator";
 import { githubMirrorList } from "../../lib/github_mirror";
-import type { RecordRect } from "../../lib/ipc";
+import type { NativeWinRect, RecordRect } from "../../lib/ipc";
 import { mainHandle, mainOn, mainOnReflect, mainSend } from "../../lib/ipc";
 import Store from "../../lib/store/store";
 import time_format from "../../lib/time_format";
@@ -806,6 +812,9 @@ app.whenReady().then(() => {
     app.setName("PunPun");
     console.log(`PunPun v${app.getVersion()} 启动`);
     syncWin32AutoStartPath();
+    if (process.platform === "win32") {
+        setTimeout(() => warmWinRectDaemon(), 500);
+    }
 
     crashReporter.start({ uploadToServer: false });
 
@@ -2062,14 +2071,152 @@ async function fullScreen(displayId?: number) {
     win.webContents.focus();
 }
 
+let winRectDaemon: ChildProcessWithoutNullStreams | null = null;
+let winRectPending: ((rects: NativeWinRect[]) => void) | null = null;
+let winRectBuf = "";
+
+function resolveWinRectExePath(): string | null {
+    if (process.platform !== "win32") return null;
+    const candidates = [
+        join(runPath, "lib/win_rect.exe").replace(
+            "app.asar",
+            "app.asar.unpacked",
+        ),
+        join(runPath, "lib/win_rect.exe"),
+        resolve("lib/win_rect.exe"),
+    ];
+    for (const p of candidates) {
+        if (existsSync(p)) return p;
+    }
+    const csPath = resolve("script/win_rect.cs");
+    const csc = "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe";
+    if (existsSync(csPath) && existsSync(csc)) {
+        try {
+            const outExe = resolve("lib/win_rect.exe");
+            mkdirSync(dirname(outExe), { recursive: true });
+            execFileSync(
+                csc,
+                [
+                    "/nologo",
+                    "/optimize+",
+                    "/target:exe",
+                    `/out:${outExe}`,
+                    csPath,
+                ],
+                { stdio: "ignore", windowsHide: true },
+            );
+            if (existsSync(outExe)) return outExe;
+        } catch {}
+    }
+    return null;
+}
+
+function warmWinRectDaemon() {
+    if (process.platform !== "win32" || winRectDaemon) return;
+    const exe = resolveWinRectExePath();
+    if (!exe) return;
+    try {
+        const proc = spawn(
+            exe,
+            ["--daemon", "--skip-pid", String(process.pid)],
+            {
+                stdio: ["pipe", "pipe", "pipe"],
+                windowsHide: true,
+            },
+        );
+        proc.stdout.setEncoding("utf8");
+        proc.stdout.on("data", (chunk: string) => {
+            winRectBuf += chunk;
+            const nl = winRectBuf.indexOf("\n");
+            if (nl >= 0) {
+                const line = winRectBuf.slice(0, nl).trim();
+                winRectBuf = winRectBuf.slice(nl + 1);
+                const cb = winRectPending;
+                winRectPending = null;
+                if (cb) {
+                    try {
+                        cb(JSON.parse(line) as NativeWinRect[]);
+                    } catch {
+                        cb([]);
+                    }
+                }
+            }
+        });
+        const cleanup = () => {
+            if (winRectDaemon === proc) winRectDaemon = null;
+            if (winRectPending) {
+                const cb = winRectPending;
+                winRectPending = null;
+                cb([]);
+            }
+        };
+        proc.on("exit", cleanup);
+        proc.on("error", cleanup);
+        winRectDaemon = proc;
+    } catch {
+        winRectDaemon = null;
+    }
+}
+
+app.on("will-quit", () => {
+    if (winRectDaemon) {
+        try {
+            winRectDaemon.kill();
+        } catch {}
+        winRectDaemon = null;
+    }
+});
+
+function queryWin32Rects(skipPid: number): Promise<NativeWinRect[]> {
+    if (process.platform !== "win32") return Promise.resolve([]);
+    if (!winRectDaemon) warmWinRectDaemon();
+    if (winRectDaemon && !winRectPending) {
+        return new Promise((resolveDone) => {
+            const timer = setTimeout(() => {
+                if (winRectPending) {
+                    winRectPending = null;
+                    resolveDone([]);
+                }
+            }, 350);
+            winRectPending = (rects) => {
+                clearTimeout(timer);
+                resolveDone(rects);
+            };
+            try {
+                winRectDaemon!.stdin.write(`${skipPid}\n`);
+            } catch {
+                clearTimeout(timer);
+                winRectPending = null;
+                resolveDone([]);
+            }
+        });
+    }
+    const exe = resolveWinRectExePath();
+    if (!exe) return Promise.resolve([]);
+    try {
+        const out = execFileSync(exe, ["--skip-pid", String(skipPid)], {
+            encoding: "utf8",
+            timeout: 800,
+            windowsHide: true,
+        });
+        return Promise.resolve(JSON.parse(out.trim()) as NativeWinRect[]);
+    } catch {
+        return Promise.resolve([]);
+    }
+}
+
 async function sendCaptureEvent(data?: Buffer, type?: 功能) {
-    const win = await getClipWin();
+    const [win, nativeWinRects] = await Promise.all([
+        getClipWin(),
+        data ? Promise.resolve(undefined) : queryWin32Rects(process.pid),
+    ]);
     mainSend(win.webContents, "clip_init", [
         screen.getAllDisplays(),
         data,
         screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id,
         type,
         process.pid,
+        nativeWinRects,
     ]);
 }
 

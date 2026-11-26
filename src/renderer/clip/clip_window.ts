@@ -78,7 +78,12 @@ import {
     txt,
     view,
 } from "dkh-ui";
-import { renderOn, renderSend, renderSendSync } from "../../../lib/ipc";
+import {
+    type NativeWinRect,
+    renderOn,
+    renderSend,
+    renderSendSync,
+} from "../../../lib/ipc";
 import { typedEntries, typedKeys } from "../../../lib/utils";
 import type { IconType } from "../../iconTypes";
 import type {
@@ -868,6 +873,8 @@ function refineWin32WindowBounds(
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
+let nativeWinRects: NativeWinRect[] = [];
+
 function getEdgeWorker() {
     if (edgeWorker) return edgeWorker;
     const worker = new EdgeWorker();
@@ -877,7 +884,8 @@ function getEdgeWorker() {
         const { id, scale, borders } = e.data;
         if (id !== edgeRequestId) return;
         edgeState = "done";
-        const minSize = Math.max(16, Math.round(18 * (ratio || 1)));
+        const dpr = Math.max(1, ratio || 1);
+        const minSize = Math.max(20, Math.round(24 * dpr));
         const snapR = scale > 1 ? scale : 0;
         for (const r of borders) {
             const rawX = r.x * scale;
@@ -894,6 +902,18 @@ function getEdgeWorker() {
                 currentScreenImageData,
             );
             if (snapped.w < minSize || snapped.h < minSize) continue;
+            if (
+                !isCleanVisualUiBox(
+                    snapped.x,
+                    snapped.y,
+                    snapped.w,
+                    snapped.h,
+                    dpr,
+                    currentScreenImageData,
+                )
+            ) {
+                continue;
+            }
             edgeRect.push({
                 x: snapped.x,
                 y: snapped.y,
@@ -914,6 +934,98 @@ function getEdgeWorker() {
     };
     edgeWorker = worker;
     return worker;
+}
+
+/** 校验视觉边缘框是否具备真实水平/垂直 UI 边界支撑，剔除壁纸山脉/云朵斜向渐变与碎乱文字团块 */
+function isCleanVisualUiBox(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    dpr: number,
+    img: ImageData | null,
+): boolean {
+    if (!img) return true;
+    const { data, width, height } = img;
+    if (w >= width * 0.96 && h >= height * 0.96) return false;
+    // 过滤极端细长噪点条（如单像素分割线伪框）
+    const aspect = w / Math.max(1, h);
+    if (aspect > 28 || aspect < 1 / 20) return false;
+
+    const stride = width * 4;
+    const samples = 14;
+    const checkVerticalSide = (sx: number) => {
+        if (sx <= 1 || sx >= width - 2) return 1;
+        let hits = 0;
+        const y0 = Math.max(1, Math.round(y + h * 0.1));
+        const y1 = Math.min(height - 2, Math.round(y + h * 0.9));
+        const span = Math.max(1, y1 - y0);
+        for (let i = 0; i <= samples; i++) {
+            const py = Math.round(y0 + (span * i) / samples);
+            let maxDiff = 0;
+            for (let dx = -1; dx <= 1; dx++) {
+                const cx = sx + dx;
+                const iL = py * stride + (cx - 1) * 4;
+                const iR = py * stride + (cx + 1) * 4;
+                const d =
+                    Math.abs(data[iL] - data[iR]) +
+                    Math.abs(data[iL + 1] - data[iR + 1]) +
+                    Math.abs(data[iL + 2] - data[iR + 2]);
+                if (d > maxDiff) maxDiff = d;
+            }
+            if (maxDiff >= 24) hits++;
+        }
+        return hits / (samples + 1);
+    };
+
+    const checkHorizontalSide = (sy: number) => {
+        if (sy <= 1 || sy >= height - 2) return 1;
+        let hits = 0;
+        const x0 = Math.max(1, Math.round(x + w * 0.1));
+        const x1 = Math.min(width - 2, Math.round(x + w * 0.9));
+        const span = Math.max(1, x1 - x0);
+        for (let i = 0; i <= samples; i++) {
+            const px = Math.round(x0 + (span * i) / samples);
+            let maxDiff = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+                const cy = sy + dy;
+                const iT = (cy - 1) * stride + px * 4;
+                const iB = (cy + 1) * stride + px * 4;
+                const d =
+                    Math.abs(data[iT] - data[iB]) +
+                    Math.abs(data[iT + 1] - data[iB + 1]) +
+                    Math.abs(data[iT + 2] - data[iB + 2]);
+                if (d > maxDiff) maxDiff = d;
+            }
+            if (maxDiff >= 24) hits++;
+        }
+        return hits / (samples + 1);
+    };
+
+    const sL = checkVerticalSide(x);
+    const sR = checkVerticalSide(x + w);
+    const sT = checkHorizontalSide(y);
+    const sB = checkHorizontalSide(y + h);
+
+    let strongSides = 0;
+    if (sL >= 0.5) strongSides++;
+    if (sR >= 0.5) strongSides++;
+    if (sT >= 0.5) strongSides++;
+    if (sB >= 0.5) strongSides++;
+
+    if (strongSides >= 3 && sL + sR + sT + sB >= 2.15) return true;
+
+    // 兼容桌面图标磁贴（约 48~120 DIP 近方形高对比度主体）
+    const isIconLike =
+        w >= 42 * dpr &&
+        w <= 135 * dpr &&
+        h >= 42 * dpr &&
+        h <= 145 * dpr &&
+        aspect >= 0.55 &&
+        aspect <= 1.65;
+    if (isIconLike && sL + sR + sT + sB >= 1.65) return true;
+
+    return false;
 }
 
 /** 每个屏幕只识别一次，直接读取内存 ImageData 并对高分屏 2x 降采样加速，零 GPU 回读卡顿 */
@@ -1003,6 +1115,46 @@ function getWin() {
     const scaleY =
         bounds.height > 0 ? mainCanvas.height / bounds.height : ratio || 1;
 
+    // Windows 优先使用原生 DWM 物理像素窗口枚举（精准无 7px 虚边、支持管理员窗口、排除挂起 UWP 幽灵窗与带真实子面板）
+    if (nativeWinRects.length > 0) {
+        const monPhysX = bounds.x === 0 ? 0 : Math.round(bounds.x * scaleX);
+        const monPhysY = bounds.y === 0 ? 0 : Math.round(bounds.y * scaleY);
+        let zRank = 0;
+        for (const nr of nativeWinRects) {
+            if (nr.pid === mainPid) continue;
+            const rx = nr.x - monPhysX;
+            const ry = nr.y - monPhysY;
+            const rw = nr.w;
+            const rh = nr.h;
+            if (
+                rx >= mainCanvas.width ||
+                ry >= mainCanvas.height ||
+                rx + rw <= 0 ||
+                ry + rh <= 0
+            ) {
+                continue;
+            }
+            const x = Math.max(0, rx);
+            const y = Math.max(0, ry);
+            const w = Math.min(rx + rw, mainCanvas.width) - x;
+            const h = Math.min(ry + rh, mainCanvas.height) - y;
+            if (w < 24 || h < 24) continue;
+            edgeRect.push({
+                x,
+                y,
+                width: w,
+                height: h,
+                type: "system",
+                zRank: nr.child ? nr.order : zRank++,
+                winId: nr.id,
+                parentId: nr.parentId,
+                isChild: Boolean(nr.child),
+                label: nr.title || "",
+            });
+        }
+        return;
+    }
+
     const sorted = [...windows].sort((a, b) =>
         b.z !== a.z ? b.z - a.z : (a.order ?? 0) - (b.order ?? 0),
     );
@@ -1035,7 +1187,6 @@ function getWin() {
             continue;
         }
 
-        // 跳过覆盖全屏的无标题透明桌面壳层/覆盖层，避免遮挡底层真实窗口
         if (
             !titleTrim &&
             rw >= mainCanvas.width * 0.96 &&
@@ -1072,6 +1223,8 @@ function getWin() {
             height: h,
             type: "system",
             zRank: zRank++,
+            winId: win.id,
+            isChild: false,
             label: appTrim || titleTrim,
         });
     }
@@ -2734,7 +2887,12 @@ function hideHoverBox() {
     hoverBoxVisible = false;
     hoverCurrentRect = null;
     hoverTargetRect = null;
-    clipHoverBox.el.classList.remove("clip-hover-visible");
+    hoverVelocity = [0, 0, 0, 0];
+    clipHoverCanvas.classList.remove("clip-hover-visible");
+    clipHoverBadge.el.classList.remove("clip-hover-visible");
+    if (clipMaskLayer.el.style.display === "none") {
+        clipMaskLayer.el.style.display = "";
+    }
 }
 
 function cleanClip() {
@@ -2747,6 +2905,8 @@ function cleanClip() {
     hoverWheelLocked = false;
     hoverWheelAccum = 0;
     lockedHoverTarget = null;
+    lastCursorTs = 0;
+    cursorSpeedPxPerMs = 0;
     hideHoverBox();
     clipRectBorder.el.classList.remove("clip-locked");
     setClipAnim(false);
@@ -2759,6 +2919,7 @@ function refreshClipUi() {
     if (hoverBoxVisible && hoverTargetRect) {
         cancelHoverAnim();
         hoverCurrentRect = [...hoverTargetRect] as rect;
+        hoverVelocity = [0, 0, 0, 0];
         applyHoverVisual(hoverCurrentRect);
     }
     drawClip();
@@ -2802,7 +2963,7 @@ function isNearSameRect(a: rect, b: rect, tol: number): boolean {
 }
 
 /**
- * 自动框选提示（结合窗口 Z 序遮挡剔除 + 图像子区域融合 + 防抖动层级记忆）
+ * 自动框选提示（原生 DWM 窗口 Z 序遮挡剔除 + 原生子面板与高置信 UI 框融合 + 快速掠过防跳闪）
  */
 function inEdge(p: editor_position) {
     if (rectSelect || selecting || drawingMode) {
@@ -2821,14 +2982,25 @@ function inEdge(p: editor_position) {
         return;
     }
 
+    const nowTs = performance.now();
+    if (lastCursorTs > 0) {
+        const dtMs = Math.max(1, nowTs - lastCursorTs);
+        const dist = Math.hypot(p.x - lastCursorX, p.y - lastCursorY);
+        const instSpeed = dist / dtMs;
+        cursorSpeedPxPerMs = cursorSpeedPxPerMs * 0.55 + instSpeed * 0.45;
+    }
+    lastCursorX = p.x;
+    lastCursorY = p.y;
+    lastCursorTs = nowTs;
+
     const dprScale = Math.max(1, ratio || 1);
     const dedupTol = Math.round(6 * dprScale);
 
-    // 1. 按 Z 序从前到后找出光标命中的最上层可见窗口，剔除被其遮挡的底层窗口
+    // 1. 按真实窗口 Z 序找出光标下的最上层顶级可见窗口，剔除被遮挡的底层窗口
     let topWin: (typeof edgeRect)[number] | null = null;
     if (识别窗口) {
         for (const item of edgeRect) {
-            if (item.type !== "system") continue;
+            if (item.type !== "system" || item.isChild) continue;
             if (
                 item.x <= p.x &&
                 p.x <= item.x + item.width &&
@@ -2841,15 +3013,41 @@ function inEdge(p: editor_position) {
         }
     }
 
-    // 2. 收集有意义的图像 UI 子区域（若命中顶层窗口，仅保留位于该窗口内部的子元素）
-    const minElemSize = Math.max(18, Math.round(20 * dprScale));
-    const minElemArea = Math.max(600, Math.round(720 * dprScale * dprScale));
-    const subRects: rect[] = [];
+    const subCandidates: { r: rect; nativeChild: boolean }[] = [];
     const topWinRect: rect | null = topWin
         ? [topWin.x, topWin.y, topWin.width, topWin.height]
         : null;
     const topWinArea = topWin ? topWin.width * topWin.height : 0;
 
+    // 2. 收集该顶层窗口内的原生子面板（Win32 EnumChildWindows）
+    if (识别窗口 && topWin && topWin.winId !== undefined) {
+        for (const item of edgeRect) {
+            if (
+                item.type !== "system" ||
+                !item.isChild ||
+                item.parentId !== topWin.winId
+            ) {
+                continue;
+            }
+            if (
+                item.x <= p.x &&
+                p.x <= item.x + item.width &&
+                item.y <= p.y &&
+                p.y <= item.y + item.height
+            ) {
+                const area = item.width * item.height;
+                if (area >= topWinArea * 0.92) continue;
+                subCandidates.push({
+                    r: [item.x, item.y, item.width, item.height],
+                    nativeChild: true,
+                });
+            }
+        }
+    }
+
+    // 3. 收集通过四边直线性与对比度校验的图像 UI 框
+    const minElemSize = Math.max(20, Math.round(24 * dprScale));
+    const minElemArea = Math.max(800, Math.round(960 * dprScale * dprScale));
     for (const item of edgeRect) {
         if (item.type !== "image") continue;
         if (item.width < minElemSize || item.height < minElemSize) continue;
@@ -2875,7 +3073,7 @@ function inEdge(p: editor_position) {
             const iy1 = Math.min(ry + rh, topWin.y + topWin.height);
             const iw = ix1 - ix0;
             const ih = iy1 - iy0;
-            if (iw <= 0 || ih <= 0 || iw * ih < rw * rh * 0.88) {
+            if (iw <= 0 || ih <= 0 || iw * ih < rw * rh * 0.9) {
                 continue;
             }
             rx = ix0;
@@ -2890,36 +3088,52 @@ function inEdge(p: editor_position) {
             ) {
                 continue;
             }
-        } else if (rw * rh >= cw * ch * 0.95) {
-            continue;
+        } else {
+            // 在桌面空白背景上只自动框选紧凑图标/小组件，不误框选大块壁纸图案
+            const maxDesktopItem = Math.round(220 * dprScale);
+            if (rw > maxDesktopItem || rh > maxDesktopItem) {
+                continue;
+            }
         }
 
-        subRects.push([rx, ry, rw, rh]);
+        subCandidates.push({ r: [rx, ry, rw, rh], nativeChild: false });
     }
 
-    subRects.sort((a, b) => a[2] * a[3] - b[2] * b[3]);
+    subCandidates.sort((a, b) => a.r[2] * a.r[3] - b.r[2] * b.r[3]);
 
     const dedup: rect[] = [];
     const labels: string[] = [];
-    for (const c of subRects) {
-        if (!dedup.some((e) => isNearSameRect(e, c, dedupTol))) {
-            dedup.push(c);
+    const isNativeFlags: boolean[] = [];
+    for (const c of subCandidates) {
+        if (!dedup.some((e) => isNearSameRect(e, c.r, dedupTol))) {
+            dedup.push(c.r);
             labels.push("");
+            isNativeFlags.push(c.nativeChild);
         }
     }
 
-    if (
-        topWinRect &&
-        !dedup.some((e) => isNearSameRect(e, topWinRect, dedupTol))
-    ) {
-        dedup.push(topWinRect);
-        labels.push(topWin?.label ?? "");
+    let topWinIdx = -1;
+    if (topWinRect) {
+        const existIdx = dedup.findIndex((e) =>
+            isNearSameRect(e, topWinRect, dedupTol),
+        );
+        if (existIdx >= 0) {
+            topWinIdx = existIdx;
+            labels[existIdx] = topWin?.label ?? "";
+            isNativeFlags[existIdx] = true;
+        } else {
+            topWinIdx = dedup.length;
+            dedup.push(topWinRect);
+            labels.push(topWin?.label ?? "");
+            isNativeFlags.push(true);
+        }
     }
 
     const fullRect: rect = [0, 0, cw, ch];
     if (!dedup.some((e) => isNearSameRect(e, fullRect, dedupTol * 2))) {
         dedup.push(fullRect);
         labels.push(t("全屏"));
+        isNativeFlags.push(true);
     }
 
     rectInRect = dedup;
@@ -2931,7 +3145,6 @@ function inEdge(p: editor_position) {
         return;
     }
 
-    // 若用户刚通过滚轮锁定了某一层，只要鼠标仍在该锁定框内就优先保持匹配该层
     if (hoverWheelLocked && lockedHoverTarget) {
         const lx = lockedHoverTarget[0];
         const ly = lockedHoverTarget[1];
@@ -2957,19 +3170,34 @@ function inEdge(p: editor_position) {
     }
 
     if (!hoverWheelLocked) {
-        // 默认优先选中结构完整的卡片/面板/窗口，避免划过文字或小图标时高频跳闪；小图标仍可通过滚轮下切选中
-        const prefMinW = Math.round(48 * dprScale);
-        const prefMinH = Math.round(32 * dprScale);
-        const prefMinArea = Math.round(2600 * dprScale * dprScale);
-        let defaultIdx = dedup.findIndex(
-            (r, idx) =>
-                idx < dedup.length - 1 &&
-                r[2] >= prefMinW &&
-                r[3] >= prefMinH &&
-                r[2] * r[3] >= prefMinArea,
-        );
-        if (defaultIdx < 0) defaultIdx = 0;
-        hoverLayerIndex = defaultIdx;
+        // 鼠标快速扫过屏幕或悬停在窗口标题栏/边框附近时，直接锁定整个窗口，彻底消除扫过小控件时的闪烁抖动
+        const nearWinEdge =
+            topWin &&
+            (p.y - topWin.y <= 34 * dprScale ||
+                p.x - topWin.x <= 18 * dprScale ||
+                topWin.x + topWin.width - p.x <= 18 * dprScale ||
+                topWin.y + topWin.height - p.y <= 14 * dprScale);
+
+        if (topWinIdx >= 0 && (cursorSpeedPxPerMs > 1.5 || nearWinEdge)) {
+            hoverLayerIndex = topWinIdx;
+        } else if (topWinIdx >= 0) {
+            // 窗口内部默认优先命中原生子面板或结构完整的较大区域（>= 80x44 DIP），更细元素可通过滚轮下切
+            const prefMinW = Math.round(80 * dprScale);
+            const prefMinH = Math.round(44 * dprScale);
+            const prefMinArea = Math.round(6400 * dprScale * dprScale);
+            let chosen = dedup.findIndex(
+                (r, idx) =>
+                    idx <= topWinIdx &&
+                    (isNativeFlags[idx] ||
+                        (r[2] >= prefMinW &&
+                            r[3] >= prefMinH &&
+                            r[2] * r[3] >= prefMinArea)),
+            );
+            if (chosen < 0) chosen = topWinIdx;
+            hoverLayerIndex = chosen;
+        } else {
+            hoverLayerIndex = 0;
+        }
     }
 
     const idx =
@@ -2981,21 +3209,74 @@ function inEdge(p: editor_position) {
 }
 
 function applyHoverVisual(r: rect) {
-    const { hxl, hyt, hxr, hyb } = drawMaskCutout(r[0], r[1], r[2], r[3]);
-    const bw = Math.max(0, hxr - hxl);
-    const bh = Math.max(0, hyb - hyt);
-    if (bw > 2 && bh > 2) {
-        const s = clipHoverBox.el.style;
-        const tf = `translate3d(${hxl}px, ${hyt}px, 0)`;
-        const wStr = `${bw}px`;
-        const hStr = `${bh}px`;
-        if (s.transform !== tf) s.transform = tf;
-        if (s.width !== wStr) s.width = wStr;
-        if (s.height !== hStr) s.height = hStr;
-        clipHoverBox.el.classList.add("clip-hover-visible");
-        clipHoverBadge.el.classList.toggle("inside", hyt < 34);
+    const dpr = window.devicePixelRatio || 1;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const cw = Math.max(1, Math.round(vw * dpr));
+    const ch = Math.max(1, Math.round(vh * dpr));
+    if (clipHoverCanvas.width !== cw || clipHoverCanvas.height !== ch) {
+        clipHoverCanvas.width = cw;
+        clipHoverCanvas.height = ch;
+    }
+
+    if (clipMaskLayer.el.style.display !== "none") {
+        clipMaskLayer.el.style.display = "none";
+    }
+
+    const { x0: vx0, y0: vy0, x1: vx1, y1: vy1 } = visibleCanvasRect();
+    const hx0 = Math.min(vx1, Math.max(vx0, src2screenX(r[0])));
+    const hy0 = Math.min(vy1, Math.max(vy0, src2screenY(r[1])));
+    const hx1 = Math.min(vx1, Math.max(hx0, src2screenX(r[0] + r[2])));
+    const hy1 = Math.min(vy1, Math.max(hy0, src2screenY(r[1] + r[3])));
+
+    const px0 = Math.round(hx0 * dpr);
+    const py0 = Math.round(hy0 * dpr);
+    const px1 = Math.round(hx1 * dpr);
+    const py1 = Math.round(hy1 * dpr);
+    const pw = Math.max(0, px1 - px0);
+    const ph = Math.max(0, py1 - py0);
+
+    clipHoverCtx.clearRect(0, 0, cw, ch);
+    clipHoverCtx.fillStyle = 遮罩颜色;
+    clipHoverCtx.beginPath();
+    clipHoverCtx.rect(
+        Math.round(vx0 * dpr),
+        Math.round(vy0 * dpr),
+        Math.round((vx1 - vx0) * dpr),
+        Math.round((vy1 - vy0) * dpr),
+    );
+    if (pw > 2 && ph > 2) {
+        clipHoverCtx.rect(px0, py0, pw, ph);
+    }
+    clipHoverCtx.fill("evenodd");
+
+    if (pw > 2 && ph > 2) {
+        const borderPx = Math.max(2, Math.round(2 * dpr));
+        const half = borderPx / 2;
+        const sx = px0 + half;
+        const sy = py0 + half;
+        const sw = Math.max(1, pw - borderPx);
+        const sh = Math.max(1, ph - borderPx);
+
+        clipHoverCtx.strokeStyle = "rgba(255, 255, 255, 0.86)";
+        clipHoverCtx.lineWidth = borderPx + Math.max(1, Math.round(dpr));
+        clipHoverCtx.strokeRect(sx, sy, sw, sh);
+
+        clipHoverCtx.strokeStyle = 边框颜色;
+        clipHoverCtx.lineWidth = borderPx;
+        clipHoverCtx.strokeRect(sx, sy, sw, sh);
+
+        clipHoverCanvas.classList.add("clip-hover-visible");
+        const badgeX = Math.max(6, Math.min(Math.round(hx0), vw - 220));
+        const badgeY = hy0 >= 34 ? Math.round(hy0 - 30) : Math.round(hy0 + 8);
+        const badgeTf = `translate3d(${badgeX}px, ${badgeY}px, 0)`;
+        if (clipHoverBadge.el.style.transform !== badgeTf) {
+            clipHoverBadge.el.style.transform = badgeTf;
+        }
+        clipHoverBadge.el.classList.add("clip-hover-visible");
     } else {
-        clipHoverBox.el.classList.remove("clip-hover-visible");
+        clipHoverCanvas.classList.remove("clip-hover-visible");
+        clipHoverBadge.el.classList.remove("clip-hover-visible");
     }
 }
 
@@ -3013,20 +3294,25 @@ function tickHoverAnim(now: number) {
     }
     const dt =
         hoverAnimLastTs > 0
-            ? Math.min(0.05, Math.max(0.001, (now - hoverAnimLastTs) / 1000))
-            : 1 / 60;
+            ? Math.min(0.034, Math.max(0.001, (now - hoverAnimLastTs) / 1000))
+            : 1 / 120;
     hoverAnimLastTs = now;
 
-    // 指数阻尼插值：高刷屏自适应（60/120/144/240Hz），中途切换目标丝滑转向不卡顿
-    const alpha = 1 - Math.exp(-dt * 32);
+    // 解析解临界阻尼弹簧（ζ = 1.0, ω = 42）：中途切换目标保持速度连续，零超调、零跳变、任意高刷屏绝对稳定
+    const omega = 42;
+    const exp = Math.exp(-omega * dt);
     let settled = true;
     for (let i = 0; i < 4; i++) {
-        const diff = hoverTargetRect[i] - hoverCurrentRect[i];
-        if (Math.abs(diff) > 0.35) {
-            hoverCurrentRect[i] += diff * alpha;
+        const x0 = hoverCurrentRect[i] - hoverTargetRect[i];
+        const v0 = hoverVelocity[i];
+        if (Math.abs(x0) > 0.3 || Math.abs(v0) > 4) {
+            const temp = (v0 + omega * x0) * dt;
+            hoverCurrentRect[i] = hoverTargetRect[i] + (x0 + temp) * exp;
+            hoverVelocity[i] = (v0 - omega * temp) * exp;
             settled = false;
         } else {
             hoverCurrentRect[i] = hoverTargetRect[i];
+            hoverVelocity[i] = 0;
         }
     }
 
@@ -3039,7 +3325,7 @@ function tickHoverAnim(now: number) {
     }
 }
 
-/** 更新唯一的智能识别高亮框与聚光遮罩（单 rAF 帧插值 + GPU translate3d，零重排卡顿） */
+/** 更新唯一的智能识别高亮框与聚光遮罩（纯 GPU Canvas + 解析临界阻尼弹簧，零 DOM 重排卡顿） */
 function setEdge(rects: rect[]) {
     const target = rects[0] ?? null;
     const layerCount = rectInRect.length;
@@ -3071,6 +3357,7 @@ function setEdge(rects: rect[]) {
     if (!hoverBoxVisible || !hoverCurrentRect || !选区平滑动画) {
         cancelHoverAnim();
         hoverCurrentRect = [target[0], target[1], target[2], target[3]];
+        hoverVelocity = [0, 0, 0, 0];
         hoverBoxVisible = true;
         applyHoverVisual(hoverCurrentRect);
         return;
@@ -3254,8 +3541,15 @@ function readScreenPatchFast(
     return mouseBarPatchData;
 }
 
+let lastMouseBarX = -1;
+let lastMouseBarY = -1;
+
 function mouseBar(finalRect: rect, e: SrcPoint) {
     const { x, y } = src2cXY(e);
+    if (!rightKey && x === lastMouseBarX && y === lastMouseBarY) return;
+    lastMouseBarX = x;
+    lastMouseBarY = y;
+
     const [x0, y0, width, height] = finalRect;
 
     const delta = (colorSize - 1) / 2;
@@ -3279,37 +3573,41 @@ function mouseBar(finalRect: rect, e: SrcPoint) {
                   colorSize,
               );
 
-    pointColorCanvasCtx.clearRect(0, 0, colorSize, colorSize);
-    pointColorCanvasBgCtx.clearRect(0, 0, colorSize, colorSize);
-
-    pointColorCanvasBgCtx.putImageData(imageData, 0, 0);
-
-    let points: point[] = [];
-
-    if (isRect || freeSelect.length < 3) {
-        points.push({ x: x0, y: y0 });
-        points.push({ x: x0, y: y0 + height });
-        points.push({ x: x0 + width, y: y0 + height });
-        points.push({ x: x0 + width, y: y0 });
+    if (!rectSelect && !selecting && isRect) {
+        pointColorCanvasBgCtx.clearRect(0, 0, colorSize, colorSize);
+        pointColorCanvasCtx.putImageData(imageData, 0, 0);
     } else {
-        points = freeSelect;
-    }
+        pointColorCanvasCtx.clearRect(0, 0, colorSize, colorSize);
+        pointColorCanvasBgCtx.clearRect(0, 0, colorSize, colorSize);
+        pointColorCanvasBgCtx.putImageData(imageData, 0, 0);
 
-    pointColorCanvasCtx.save();
+        let points: point[] = [];
+        if (isRect || freeSelect.length < 3) {
+            points.push({ x: x0, y: y0 });
+            points.push({ x: x0, y: y0 + height });
+            points.push({ x: x0 + width, y: y0 + height });
+            points.push({ x: x0 + width, y: y0 });
+        } else {
+            points = freeSelect;
+        }
 
-    pointColorCanvasCtx.beginPath();
-    pointColorCanvasCtx.moveTo(points[0].x - xOffset, points[0].y - yOffset);
-    for (let i = 1; i < points.length; i++) {
-        pointColorCanvasCtx.lineTo(
-            points[i].x - xOffset,
-            points[i].y - yOffset,
+        pointColorCanvasCtx.save();
+        pointColorCanvasCtx.beginPath();
+        pointColorCanvasCtx.moveTo(
+            points[0].x - xOffset,
+            points[0].y - yOffset,
         );
+        for (let i = 1; i < points.length; i++) {
+            pointColorCanvasCtx.lineTo(
+                points[i].x - xOffset,
+                points[i].y - yOffset,
+            );
+        }
+        pointColorCanvasCtx.closePath();
+        pointColorCanvasCtx.clip();
+        pointColorCanvasCtx.drawImage(pointColorCanvasBg, 0, 0);
+        pointColorCanvasCtx.restore();
     }
-    pointColorCanvasCtx.closePath();
-    pointColorCanvasCtx.clip();
-    pointColorCanvasCtx.drawImage(pointColorCanvasBg, 0, 0);
-
-    pointColorCanvasCtx.restore();
 
     const centerIndex = (colorSize * delta + delta) * 4;
     let [r, g, b, a] = imageData.data.slice(centerIndex, centerIndex + 4);
@@ -4725,6 +5023,7 @@ const allColorFormat: colorFormat[] = [
 const 工具栏跟随 = store.get("工具栏跟随");
 const 四角坐标 = store.get("显示四角坐标");
 const 遮罩颜色 = store.get("框选.颜色.遮罩") || "#0008";
+const 边框颜色 = store.get("框选.颜色.边框") || "#2563EB";
 const 取色器默认格式 = store.get("取色器.默认格式");
 const 取色器格式位置 = allColorFormat.indexOf(取色器默认格式);
 const 取色器显示 = store.get("取色器.显示");
@@ -5558,10 +5857,11 @@ const clipEdge = view().style({
     width: "100%",
     height: "100%",
 });
-const clipHoverBadge = view().attr({ id: "clip_hover_badge" });
-const clipHoverBox = view()
-    .attr({ id: "clip_hover_box" })
-    .add(clipHoverBadge.el);
+const clipHoverCanvas = ele("canvas")
+    .attr({ id: "clip_hover_canvas" })
+    .addInto().el;
+const clipHoverCtx = clipHoverCanvas.getContext("2d")!;
+const clipHoverBadge = view().attr({ id: "clip_hover_badge" }).addInto();
 const clipRectBorder = view()
     .attr({ id: "clip_rect_border" })
     .add(
@@ -5572,7 +5872,6 @@ const clipRectBorder = view()
 clipMaskLayer.add([...clipMaskRect.map((i) => i.el), clipMaskPoly.el]);
 clipLineLayer.add([
     ...clipSelectLines.map((i) => i.el),
-    clipHoverBox.el,
     clipRectBorder.el,
     clipEdge.el,
     ...clipCkx.map((i) => i.el),
@@ -5661,6 +5960,9 @@ const edgeRect: {
     height: number;
     type: "system" | "image";
     zRank?: number;
+    winId?: number;
+    parentId?: number;
+    isChild?: boolean;
     label?: string;
 }[] = [];
 
@@ -5820,8 +6122,13 @@ let hoverWheelAccum = 0;
 let lockedHoverTarget: rect | null = null;
 let hoverCurrentRect: rect | null = null;
 let hoverTargetRect: rect | null = null;
+let hoverVelocity: [number, number, number, number] = [0, 0, 0, 0];
 let hoverAnimRaf = 0;
 let hoverAnimLastTs = 0;
+let lastCursorX = 0;
+let lastCursorY = 0;
+let lastCursorTs = 0;
+let cursorSpeedPxPerMs = 0;
 let mouseMoveRaf = 0;
 
 const mouseBarW =
@@ -6026,145 +6333,152 @@ renderOn("clip_reset", () => {
     document.body.style.opacity = "0";
 });
 
-renderOn("clip_init", async ([_displays, imgBuffer, mainid, act, pid]) => {
-    document.documentElement.style.display = "";
-    document.body.style.opacity = "0";
-    resetClipSession();
-    currentDisplays = _displays;
-    mainPid = pid ?? 0;
-    const wx = await screenShots(_displays, imgBuffer); // 只是截屏 也可能是小图片
-    allScreens = wx.screen;
-    const mainId = mainid;
-    const i = getNowScreen(mainId);
-    windows = wx.window;
-    const nowScreen = _displays.find((i) => i.id === mainId) || _displays[0]; // 非截屏，是屏幕
-    if (wx.type === "normal") {
-        ratio = window.devicePixelRatio || i.scaleFactor;
-    } else if (wx.type === "command") {
-        const x = store.get("自定义屏幕属性");
-        const s = x.find((i) => i.id === mainId);
-        ratio = s ? s.scaleFactor : nowScreen.scaleFactor;
-    }
-    await setScreen(i);
-    const xy = { x: 0, y: 0 };
-    if (wx.type === "normal") {
-        ratio = window.devicePixelRatio || i.scaleFactor;
-        zoomW = mainCanvas.width / ratio;
-    } else if (wx.type === "command") {
-        const x = store.get("自定义屏幕属性");
-        const s = x.find((i) => i.id === mainId);
-        zoomW = i.size.width;
-        if (s) ratio = s.scaleFactor;
-        else ratio = nowScreen.scaleFactor;
-    } else if (wx.type === "img")
-        if (
-            i.size.width < nowScreen.size.width ||
-            i.size.height < nowScreen.size.height
-        ) {
-            const x =
-                (nowScreen.size.width * window.devicePixelRatio) / 2 -
-                i.size.width / 2;
-            const y =
-                (nowScreen.size.height * window.devicePixelRatio) / 2 -
-                i.size.height / 2;
-            xy.x = x;
-            xy.y = y;
+renderOn(
+    "clip_init",
+    async ([_displays, imgBuffer, mainid, act, pid, _nativeWinRects]) => {
+        document.documentElement.style.display = "";
+        document.body.style.opacity = "0";
+        lastMouseBarX = -1;
+        lastMouseBarY = -1;
+        resetClipSession();
+        currentDisplays = _displays;
+        mainPid = pid ?? 0;
+        nativeWinRects = _nativeWinRects ?? [];
+        const wx = await screenShots(_displays, imgBuffer); // 只是截屏 也可能是小图片
+        allScreens = wx.screen;
+        const mainId = mainid;
+        const i = getNowScreen(mainId);
+        windows = wx.window;
+        const nowScreen =
+            _displays.find((i) => i.id === mainId) || _displays[0]; // 非截屏，是屏幕
+        if (wx.type === "normal") {
+            ratio = window.devicePixelRatio || i.scaleFactor;
+        } else if (wx.type === "command") {
+            const x = store.get("自定义屏幕属性");
+            const s = x.find((i) => i.id === mainId);
+            ratio = s ? s.scaleFactor : nowScreen.scaleFactor;
+        }
+        await setScreen(i);
+        const xy = { x: 0, y: 0 };
+        if (wx.type === "normal") {
+            ratio = window.devicePixelRatio || i.scaleFactor;
+            zoomW = mainCanvas.width / ratio;
+        } else if (wx.type === "command") {
+            const x = store.get("自定义屏幕属性");
+            const s = x.find((i) => i.id === mainId);
             zoomW = i.size.width;
-            ratio = devicePixelRatio;
-        }
-    setEditorP(1 / ratio, 0, 0);
-    undoStack.reset({
-        rect: finalRect,
-        canvas: fabricCanvas.toJSON(),
-    });
-
-    setSetting();
-    inlineOcr.clear();
-    drawBarManualMoved = false;
-
-    const screensEl = toolsX.screens.el;
-    if (allScreens.length > 1) {
-        if (toolsOrder.includes("screens")) screensEl.el.style.display = "";
-        let minX = 0;
-        let maxX = 0;
-        let minY = 0;
-        let maxY = 0;
-        for (const sItem of allScreens) {
-            const right = sItem.bounds.x + sItem.bounds.width;
-            const bottom = sItem.bounds.y + sItem.bounds.height;
-            maxX = Math.max(maxX, right);
-            maxY = Math.max(maxY, bottom);
-            minX = Math.min(minX, sItem.bounds.x);
-            minY = Math.min(minY, sItem.bounds.y);
-        }
-        const tWidth = maxX - minX;
-        const tHeight = maxY - minY;
-        const el = view();
-        for (const sItem of allScreens) {
-            const x = (sItem.bounds.x - minX) / tWidth;
-            const y = (sItem.bounds.y - minY) / tHeight;
-            const width = sItem.bounds.width / tWidth;
-            const height = sItem.bounds.height / tHeight;
-            const div = view().style({
-                width: `${width * 100}%`,
-                height: `${height * 100}%`,
-                left: `${x * 100}%`,
-                top: `${y * 100}%`,
-            });
-            if (sItem.id === nowScreenId) {
-                div.el.classList.add("now_screen");
+            if (s) ratio = s.scaleFactor;
+            else ratio = nowScreen.scaleFactor;
+        } else if (wx.type === "img")
+            if (
+                i.size.width < nowScreen.size.width ||
+                i.size.height < nowScreen.size.height
+            ) {
+                const x =
+                    (nowScreen.size.width * window.devicePixelRatio) / 2 -
+                    i.size.width / 2;
+                const y =
+                    (nowScreen.size.height * window.devicePixelRatio) / 2 -
+                    i.size.height / 2;
+                xy.x = x;
+                xy.y = y;
+                zoomW = i.size.width;
+                ratio = devicePixelRatio;
             }
-            el.add(div);
-            div.on("click", () => {
-                el.query(".now_screen")?.el.classList.remove("now_screen");
-                div.class("now_screen");
-                setScreen(sItem);
-            });
-        }
-        screensEl.clear().add(el);
-    } else {
-        screensEl.el.style.display = "none";
-    }
+        setEditorP(1 / ratio, 0, 0);
+        undoStack.reset({
+            rect: finalRect,
+            canvas: fabricCanvas.toJSON(),
+        });
 
-    if (!rectSelect) {
-        activeHoverRect = null;
-        activeHoverLabel = "";
-        hoverLayerIndex = 0;
-        hoverListKey = "";
-        hoverWheelLocked = false;
-        hoverWheelAccum = 0;
-        lockedHoverTarget = null;
-        edgeKey = "";
-        hideHoverBox();
-        isShowBars = !store.get("工具栏.稍后出现");
-        if (isShowBars) {
+        setSetting();
+        inlineOcr.clear();
+        drawBarManualMoved = false;
+
+        const screensEl = toolsX.screens.el;
+        if (allScreens.length > 1) {
+            if (toolsOrder.includes("screens")) screensEl.el.style.display = "";
+            let minX = 0;
+            let maxX = 0;
+            let minY = 0;
+            let maxY = 0;
+            for (const sItem of allScreens) {
+                const right = sItem.bounds.x + sItem.bounds.width;
+                const bottom = sItem.bounds.y + sItem.bounds.height;
+                maxX = Math.max(maxX, right);
+                maxY = Math.max(maxY, bottom);
+                minX = Math.min(minX, sItem.bounds.x);
+                minY = Math.min(minY, sItem.bounds.y);
+            }
+            const tWidth = maxX - minX;
+            const tHeight = maxY - minY;
+            const el = view();
+            for (const sItem of allScreens) {
+                const x = (sItem.bounds.x - minX) / tWidth;
+                const y = (sItem.bounds.y - minY) / tHeight;
+                const width = sItem.bounds.width / tWidth;
+                const height = sItem.bounds.height / tHeight;
+                const div = view().style({
+                    width: `${width * 100}%`,
+                    height: `${height * 100}%`,
+                    left: `${x * 100}%`,
+                    top: `${y * 100}%`,
+                });
+                if (sItem.id === nowScreenId) {
+                    div.el.classList.add("now_screen");
+                }
+                el.add(div);
+                div.on("click", () => {
+                    el.query(".now_screen")?.el.classList.remove("now_screen");
+                    div.class("now_screen");
+                    setScreen(sItem);
+                });
+            }
+            screensEl.clear().add(el);
+        } else {
+            screensEl.el.style.display = "none";
+        }
+
+        if (!rectSelect) {
+            activeHoverRect = null;
+            activeHoverLabel = "";
+            hoverLayerIndex = 0;
+            hoverListKey = "";
+            hoverWheelLocked = false;
+            hoverWheelAccum = 0;
+            lockedHoverTarget = null;
+            edgeKey = "";
+            hideHoverBox();
+            isShowBars = !store.get("工具栏.稍后出现");
+            if (isShowBars) {
+                followBar();
+                showBars(true);
+            } else {
+                showBars(false);
+            }
+            whEl.style({ opacity: "0", pointerEvents: "none" });
+        } else {
+            isShowBars = true;
             followBar();
             showBars(true);
-        } else {
-            showBars(false);
         }
-        whEl.style({ opacity: "0", pointerEvents: "none" });
-    } else {
-        isShowBars = true;
-        followBar();
-        showBars(true);
-    }
 
-    document.body.style.opacity = "";
+        document.body.style.opacity = "";
 
-    renderSend("clip_show", []);
+        renderSend("clip_show", []);
 
-    setDefaultAction(act);
+        setDefaultAction(act);
 
-    getWin();
+        getWin();
 
-    drawClipRect();
-    setTimeout(() => {
-        whBar(finalRect);
-    }, 0);
-    rightKey = false;
-    changeRightBar(false);
-});
+        drawClipRect();
+        setTimeout(() => {
+            whBar(finalRect);
+        }, 0);
+        rightKey = false;
+        changeRightBar(false);
+    },
+);
 
 renderOn("clip_stop_long", () => stopLong());
 
@@ -6188,15 +6502,10 @@ document.onwheel = (e) => {
         return;
     if (longRunning) return;
 
-    if (
-        !rectSelect &&
-        !selecting &&
-        !drawingMode &&
-        !isModKey(e) &&
-        rectInRect.length > 1
-    ) {
+    // 悬停预览阶段：滚轮仅用于在多层自动识别框之间切换，严禁触发画布上下位移
+    if (!rectSelect && !selecting && !drawingMode && !isModKey(e)) {
         e.preventDefault();
-        // 兼容普通鼠标滚轮（单格 100~120）与高精度触控板微滚动，防止一次滑动连跳数层
+        if (rectInRect.length <= 1) return;
         if (Math.abs(e.deltaY) >= 50) {
             hoverWheelAccum = 0;
             hoverLayerIndex += e.deltaY > 0 ? 1 : -1;
@@ -6221,17 +6530,25 @@ document.onwheel = (e) => {
         return;
     }
 
-    document.body.classList.add("editor_bg");
-
     if ((nowType === "draw" || nowType === "shape") && !isModKey(e)) {
+        e.preventDefault();
         adjustStrokeWidth(e.deltaY / 50);
         return;
     }
 
+    // 仅按住 Ctrl / Command + 滚轮时允许缩放（且最小不低于 1:1 屏幕大小），普通滚轮严禁让截图画面上下移动
     if (isModKey(e)) {
+        e.preventDefault();
+        const baseW = mainCanvas.width / (ratio || 1);
         const zz = 1 + Math.abs(e.deltaY) / 300;
-        const z = e.deltaY > 0 ? zoomW / zz : zoomW * zz;
+        const z = Math.max(baseW, e.deltaY > 0 ? zoomW / zz : zoomW * zz);
         zoomW = z;
+        if (Math.abs(z - baseW) < 0.5) {
+            document.body.classList.remove("editor_bg");
+            setEditorP(1 / (ratio || 1), 0, 0);
+            return;
+        }
+        document.body.classList.add("editor_bg");
         const ozoom = editorP.zoom;
         const nzoom = z / mainCanvas.width;
         const dx = nowMouseE.clientX - editorP.x * ozoom;
@@ -6239,21 +6556,10 @@ document.onwheel = (e) => {
         const x = nowMouseE.clientX - dx * (nzoom / ozoom);
         const y = nowMouseE.clientY - dy * (nzoom / ozoom);
         setEditorP(nzoom, x / nzoom, y / nzoom);
-    } else {
-        let dx = 0;
-        let dy = 0;
-        if (e.shiftKey && !e.deltaX) {
-            dx = -e.deltaY;
-        } else {
-            dx = -e.deltaX;
-            dy = -e.deltaY;
-        }
-        setEditorP(
-            editorP.zoom,
-            editorP.x + dx / editorP.zoom,
-            editorP.y + dy / editorP.zoom,
-        );
+        return;
     }
+
+    e.preventDefault();
 };
 
 document.onkeyup = (e) => {

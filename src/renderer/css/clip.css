@@ -447,29 +447,26 @@ body input {
     contain: strict;
 }
 
-/* 唯一智能自动识别悬停高亮框（由统一 rAF 帧插值 + translate3d 驱动，零布局重排卡顿） */
-#clip_hover_box {
+/* 纯 GPU 画布绘制自动框选聚光遮罩与高亮框（零 DOM 重排、零阴影重绘卡顿） */
+#clip_hover_canvas {
+    position: fixed;
     left: 0;
     top: 0;
-    box-sizing: border-box;
-    border: 2px solid var(--clip-border-color);
-    border-radius: 3px;
-    background: transparent;
-    box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.78),
-        0 4px 14px rgba(0, 0, 0, 0.22);
+    width: 100%;
+    height: 100%;
+    z-index: 9;
+    pointer-events: none;
     opacity: 0;
-    transform: translate3d(0, 0, 0);
-    transition: opacity 0.1s ease-out;
-    will-change: transform, width, height, opacity;
+    transition: opacity 0.08s ease-out;
 }
-#clip_hover_box.clip-hover-visible {
+#clip_hover_canvas.clip-hover-visible {
     opacity: 1;
 }
 #clip_hover_badge {
-    position: absolute;
+    position: fixed;
     left: 0;
-    top: -28px;
+    top: 0;
+    z-index: 11;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -488,6 +485,13 @@ body input {
     line-height: 1.3;
     white-space: nowrap;
     pointer-events: none;
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+    transition: opacity 0.08s ease-out;
+    will-change: transform, opacity;
+}
+#clip_hover_badge.clip-hover-visible {
+    opacity: 1;
 }
 #clip_hover_badge::before {
     content: "";
@@ -497,10 +501,6 @@ body input {
     background: var(--clip-border-color);
     box-shadow: 0 0 6px var(--clip-border-color);
     flex-shrink: 0;
-}
-#clip_hover_badge.inside {
-    top: 6px;
-    left: 6px;
 }
 
 /* 选区主题高亮边框与 8 控制点 */
