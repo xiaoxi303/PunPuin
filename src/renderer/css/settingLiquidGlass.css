@@ -1,0 +1,564 @@
+/* Apple Liquid Glass (iOS 26/27 & macOS Tahoe) — Pure Colorless Crystal Glass & Capsule UI (Settings Only) */
+
+:root {
+    --lg-window-veil: transparent;
+    --lg-glass-rail: rgba(255, 255, 255, 0.24);
+    --lg-glass-card: rgba(255, 255, 255, 0.26);
+    --lg-glass-tile: rgba(255, 255, 255, 0.32);
+    --lg-glass-pill: rgba(255, 255, 255, 0.42);
+    --lg-glass-pill-active: rgba(255, 255, 255, 0.78);
+    --lg-glass-hover: rgba(255, 255, 255, 0.46);
+    --lg-rim-top: rgba(255, 255, 255, 0.92);
+    --lg-rim-side: rgba(255, 255, 255, 0.52);
+    --lg-rim-bottom: rgba(15, 23, 42, 0.1);
+    --lg-shadow:
+        0 16px 40px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+    --lg-shadow-soft:
+        0 8px 24px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04);
+    --lg-blur: blur(26px) saturate(185%);
+    --lg-glare: radial-gradient(
+        240px circle at var(--mx, 50%) var(--my, 50%),
+        rgba(255, 255, 255, 0.48),
+        transparent 68%
+    );
+    --lg-active-text: #0f172a;
+    --lg-text-shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --lg-window-veil: transparent;
+        --lg-glass-rail: rgba(255, 255, 255, 0.05);
+        --lg-glass-card: rgba(255, 255, 255, 0.055);
+        --lg-glass-tile: rgba(255, 255, 255, 0.07);
+        --lg-glass-pill: rgba(255, 255, 255, 0.09);
+        --lg-glass-pill-active: rgba(255, 255, 255, 0.22);
+        --lg-glass-hover: rgba(255, 255, 255, 0.14);
+        --lg-rim-top: rgba(255, 255, 255, 0.36);
+        --lg-rim-side: rgba(255, 255, 255, 0.17);
+        --lg-rim-bottom: rgba(0, 0, 0, 0.28);
+        --lg-shadow:
+            0 18px 46px rgba(0, 0, 0, 0.38), 0 2px 10px rgba(0, 0, 0, 0.2);
+        --lg-shadow-soft:
+            0 10px 28px rgba(0, 0, 0, 0.28), 0 1px 6px rgba(0, 0, 0, 0.16);
+        --lg-blur: blur(28px) saturate(175%);
+        --lg-glare: radial-gradient(
+            240px circle at var(--mx, 50%) var(--my, 50%),
+            rgba(255, 255, 255, 0.18),
+            transparent 68%
+        );
+        --lg-active-text: #ffffff;
+        --lg-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+    }
+}
+
+/* 三档无色透明液态玻璃强度：清透（默认）/ 液态 / 雾面 */
+:root[data-lg-mode="clear"] {
+    --lg-glass-rail: rgba(255, 255, 255, 0.16);
+    --lg-glass-card: rgba(255, 255, 255, 0.16);
+    --lg-glass-tile: rgba(255, 255, 255, 0.22);
+    --lg-glass-pill: rgba(255, 255, 255, 0.28);
+    --lg-glass-pill-active: rgba(255, 255, 255, 0.68);
+    --lg-blur: blur(18px) saturate(195%);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root[data-lg-mode="clear"] {
+        --lg-glass-rail: rgba(255, 255, 255, 0.035);
+        --lg-glass-card: rgba(255, 255, 255, 0.038);
+        --lg-glass-tile: rgba(255, 255, 255, 0.052);
+        --lg-glass-pill: rgba(255, 255, 255, 0.075);
+        --lg-glass-pill-active: rgba(255, 255, 255, 0.2);
+        --lg-blur: blur(20px) saturate(185%);
+    }
+}
+
+:root[data-lg-mode="frosted"] {
+    --lg-window-veil: rgba(255, 255, 255, 0.22);
+    --lg-glass-rail: rgba(255, 255, 255, 0.56);
+    --lg-glass-card: rgba(255, 255, 255, 0.58);
+    --lg-glass-tile: rgba(255, 255, 255, 0.64);
+    --lg-glass-pill: rgba(255, 255, 255, 0.68);
+    --lg-glass-pill-active: rgba(255, 255, 255, 0.92);
+    --lg-blur: blur(36px) saturate(165%);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root[data-lg-mode="frosted"] {
+        --lg-window-veil: rgba(16, 18, 22, 0.26);
+        --lg-glass-rail: rgba(255, 255, 255, 0.1);
+        --lg-glass-card: rgba(255, 255, 255, 0.11);
+        --lg-glass-tile: rgba(255, 255, 255, 0.13);
+        --lg-glass-pill: rgba(255, 255, 255, 0.15);
+        --lg-glass-pill-active: rgba(255, 255, 255, 0.28);
+        --lg-blur: blur(38px) saturate(165%);
+    }
+}
+
+html,
+body {
+    background: transparent !important;
+    margin: 0;
+    overflow: hidden;
+    height: 100vh;
+}
+
+body.lg-window-root {
+    --font-color: #090d16;
+    --font-color-l: rgba(9, 13, 22, 0.78);
+    --font-color-ll: rgba(9, 13, 22, 0.62);
+    color: var(--font-color);
+    background: var(--lg-window-veil) !important;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+    body.lg-window-root {
+        --font-color: #ffffff;
+        --font-color-l: rgba(255, 255, 255, 0.84);
+        --font-color-ll: rgba(255, 255, 255, 0.68);
+        color: var(--font-color);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.48);
+    }
+}
+
+body.lg-window-root input::placeholder,
+body.lg-window-root textarea::placeholder {
+    color: var(--font-color-ll);
+    opacity: 1;
+}
+
+body.lg-window-root .pun-section-eyebrow {
+    color: var(--font-color-ll) !important;
+    font-weight: 700;
+}
+
+body.lg-window-root .lg-sidebar .nav-icon {
+    opacity: 0.9 !important;
+}
+
+body.lg-window-root .lg-sidebar > .nav-wrap:not(:has(input:checked)) {
+    color: var(--font-color-l) !important;
+}
+
+body.lg-window-root h1,
+body.lg-window-root h2 {
+    color: var(--font-color);
+}
+
+body.lg-window-root h2 {
+    color: var(--font-color-l);
+}
+
+body.lg-window-root kbd {
+    color: var(--font-color) !important;
+    opacity: 0.92 !important;
+}
+
+/* 悬浮独立无色液态玻璃侧栏（所有子项禁止压缩变形） */
+.lg-sidebar {
+    position: relative;
+    margin: 12px 0 12px 12px !important;
+    height: calc(100vh - 24px) !important;
+    width: 260px !important;
+    border-radius: 28px !important;
+    background: var(--lg-glass-rail) !important;
+    backdrop-filter: var(--lg-blur) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    box-shadow:
+        var(--lg-shadow),
+        inset 0 1px 0 var(--lg-rim-top),
+        inset 1px 0 0 var(--lg-rim-side),
+        inset 0 -1px 0 var(--lg-rim-bottom) !important;
+    padding: 14px 10px 16px !important;
+    isolation: isolate;
+}
+
+.lg-sidebar > * {
+    flex-shrink: 0 !important;
+}
+
+/* 精准贴合的液态胶囊滑动指示器（必须显式 top: 0 以与 offsetTop 1:1 对齐） */
+.lg-nav-pill {
+    position: absolute !important;
+    top: 0 !important;
+    left: 10px !important;
+    right: 10px !important;
+    height: 36px;
+    border-radius: 999px !important;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0;
+    background: var(--lg-glass-pill-active);
+    backdrop-filter: blur(20px) saturate(190%);
+    border: 1px solid var(--lg-rim-top);
+    box-shadow:
+        0 6px 18px rgba(0, 0, 0, 0.14),
+        inset 0 1px 0 var(--lg-rim-top),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.14);
+    transition:
+        transform 0.34s cubic-bezier(0.28, 1.28, 0.48, 1),
+        height 0.24s var(--ease-out-expo),
+        opacity 0.18s ease;
+    will-change: transform, height;
+}
+
+.lg-nav-pill.ready {
+    opacity: 1;
+}
+
+.lg-sidebar > *:not(.lg-nav-pill) {
+    position: relative;
+    z-index: 1;
+}
+
+.lg-sidebar .nav-wrap {
+    flex-shrink: 0 !important;
+}
+
+.lg-sidebar .nav-wrap > label {
+    border-radius: 999px !important;
+    padding: 7px 14px !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.lg-sidebar .nav-wrap > label:hover {
+    background: var(--lg-glass-hover) !important;
+    transform: none !important;
+}
+
+.lg-sidebar .nav-wrap > label:has(input:checked) {
+    background: transparent !important;
+    color: var(--lg-active-text) !important;
+    font-weight: 650 !important;
+    box-shadow: none !important;
+}
+
+.lg-sidebar .nav-wrap > label:has(input:checked)::before {
+    display: none !important;
+}
+
+/* 顶部无边框可拖拽液态胶囊控制条 */
+.lg-topbar {
+    -webkit-app-region: drag;
+    position: sticky !important;
+    top: 0;
+    z-index: 20;
+    padding: 12px 146px 10px 24px !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    border-bottom: none !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.lg-topbar .lg-nodrag,
+.lg-topbar input,
+.lg-topbar button {
+    -webkit-app-region: no-drag;
+}
+
+.lg-topbar .pun-icon-wrap {
+    opacity: 0.88 !important;
+}
+
+.lg-search-capsule {
+    background: var(--lg-glass-pill) !important;
+    backdrop-filter: var(--lg-blur) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    border-radius: 999px !important;
+    outline: none !important;
+    box-shadow:
+        var(--lg-shadow-soft),
+        inset 0 1px 0 var(--lg-rim-top),
+        inset 0 -1px 0 var(--lg-rim-bottom) !important;
+    transition:
+        box-shadow 0.22s var(--ease-out-expo),
+        border-color 0.22s var(--ease-out-expo),
+        background-color 0.22s ease !important;
+}
+
+.lg-search-capsule:focus {
+    background: var(--lg-glass-hover) !important;
+    border-color: var(--lg-rim-top) !important;
+    box-shadow:
+        var(--lg-shadow),
+        inset 0 1px 0 var(--lg-rim-top) !important;
+}
+
+/* 液态玻璃三档胶囊切换器（高对比纯白高亮胶囊） */
+.lg-mode-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--lg-glass-pill);
+    backdrop-filter: var(--lg-blur);
+    border: 1px solid var(--lg-rim-side);
+    box-shadow:
+        var(--lg-shadow-soft),
+        inset 0 1px 0 var(--lg-rim-top);
+    flex-shrink: 0;
+}
+
+.lg-mode-btn {
+    height: 30px !important;
+    padding: 0 12px !important;
+    border-radius: 999px !important;
+    border: none !important;
+    outline: none !important;
+    background: transparent !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    color: var(--font-color-l) !important;
+    cursor: pointer;
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        box-shadow 0.22s var(--ease-out-expo),
+        transform 0.18s var(--ease-spring) !important;
+}
+
+.lg-mode-btn:hover {
+    color: var(--lg-active-text) !important;
+}
+
+.lg-mode-btn.active {
+    background: var(--lg-glass-pill-active) !important;
+    color: var(--lg-active-text) !important;
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.16),
+        inset 0 1px 0 var(--lg-rim-top) !important;
+}
+
+/* 纯净无色透明液态玻璃卡片与容器 */
+.lg-surface,
+.lg-hero-surface {
+    position: relative;
+    background: var(--lg-glass-card) !important;
+    backdrop-filter: var(--lg-blur) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    border-radius: 26px !important;
+    box-shadow:
+        var(--lg-shadow-soft),
+        inset 0 1px 0 var(--lg-rim-top),
+        inset 1px 0 0 var(--lg-rim-side),
+        inset 0 -1px 0 var(--lg-rim-bottom) !important;
+}
+
+.lg-hero-surface {
+    border-radius: 28px !important;
+    box-shadow:
+        var(--lg-shadow),
+        inset 0 1px 0 var(--lg-rim-top),
+        inset 1px 0 0 var(--lg-rim-side),
+        inset 0 -1px 0 var(--lg-rim-bottom) !important;
+}
+
+.lg-tile {
+    position: relative;
+    background: var(--lg-glass-tile) !important;
+    backdrop-filter: blur(22px) saturate(185%) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    outline: none !important;
+    border-radius: 22px !important;
+    box-shadow:
+        0 6px 18px rgba(0, 0, 0, 0.09),
+        inset 0 1px 0 var(--lg-rim-top),
+        inset 0 -1px 0 var(--lg-rim-bottom) !important;
+}
+
+.lg-tile:hover {
+    background: var(--lg-glass-hover) !important;
+    border-color: var(--lg-rim-top) !important;
+    transform: translateY(-2px) !important;
+    box-shadow:
+        0 14px 30px rgba(0, 0, 0, 0.18),
+        inset 0 1px 0 var(--lg-rim-top) !important;
+}
+
+.lg-tile:active {
+    transform: scale(0.98) !important;
+}
+
+/* 品牌卡独立样式（禁止上浮和被压缩） */
+.lg-brand-card {
+    flex-shrink: 0 !important;
+    height: auto !important;
+    min-height: fit-content !important;
+    border-radius: 22px !important;
+    background: var(--lg-glass-tile) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    box-shadow:
+        0 6px 18px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 var(--lg-rim-top) !important;
+}
+
+.lg-brand-card:hover {
+    transform: none !important;
+}
+
+/* 顶部快捷胶囊按钮与状态胶囊 */
+.lg-chip {
+    background: var(--lg-glass-pill) !important;
+    backdrop-filter: blur(18px) saturate(185%) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    border-radius: 999px !important;
+    color: var(--lg-active-text) !important;
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 var(--lg-rim-top) !important;
+}
+
+.lg-chip:hover {
+    background: var(--lg-glass-pill-active) !important;
+    border-color: var(--lg-rim-top) !important;
+    color: var(--lg-active-text) !important;
+}
+
+/* 全界面统一液态胶囊控件（按钮、分段选择、输入框、下拉框、徽章；多行卡片保持圆角矩形） */
+body.lg-window-root
+    :not(.group)
+    > :where(
+        button:not(.lg-tile),
+        input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+        select,
+        .b-like
+    ) {
+    background: var(--lg-glass-pill);
+    backdrop-filter: blur(18px) saturate(185%);
+    border-radius: 999px !important;
+    outline: 1px solid var(--lg-rim-side);
+    box-shadow: inset 0 1px 0 var(--lg-rim-top);
+}
+
+body.lg-window-root
+    :not(.group)
+    > :where(button:not(.lg-tile), select, .b-like):hover:not(:disabled) {
+    background: var(--lg-glass-hover);
+    outline-color: var(--lg-rim-top);
+}
+
+body.lg-window-root .group {
+    background: var(--lg-glass-pill) !important;
+    backdrop-filter: blur(18px) saturate(185%);
+    border-radius: 999px !important;
+    outline: 1px solid var(--lg-rim-side) !important;
+    box-shadow: inset 0 1px 0 var(--lg-rim-top);
+    padding: 2px;
+}
+
+body.lg-window-root .group > * {
+    border-radius: 999px !important;
+}
+
+body.lg-window-root textarea {
+    background: var(--lg-glass-pill) !important;
+    backdrop-filter: blur(18px) saturate(185%);
+    border-radius: 18px !important;
+    outline: 1px solid var(--lg-rim-side) !important;
+}
+
+body.lg-window-root .pun-pill {
+    background: var(--lg-glass-pill) !important;
+    color: var(--lg-active-text) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    border-radius: 999px !important;
+    box-shadow: inset 0 1px 0 var(--lg-rim-top);
+}
+
+body.lg-window-root kbd {
+    background: var(--lg-glass-pill) !important;
+    border: 1px solid var(--lg-rim-side) !important;
+    border-radius: 999px !important;
+    padding: 2px 9px !important;
+    box-shadow: inset 0 1px 0 var(--lg-rim-top) !important;
+}
+
+/* 左侧“立即截图”胶囊主按钮（通透液态白玻感或纯净玻璃主色） */
+body.lg-window-root .pun-btn-primary {
+    border-radius: 999px !important;
+}
+
+/* 禁用设置页悬停光辉圆圈 */
+.pun-spotlight::before {
+    display: none !important;
+}
+
+/* iOS 26/27 透明折射水滴液态开关 */
+input[type="checkbox"][data-xtype="switch"] {
+    width: 48px !important;
+    height: 26px !important;
+    border-radius: 999px !important;
+    background: var(--lg-glass-pill) !important;
+    backdrop-filter: blur(14px) saturate(180%);
+    outline: 1px solid var(--lg-rim-side) !important;
+    box-shadow:
+        inset 0 1px 3px rgba(0, 0, 0, 0.14),
+        inset 0 -1px 0 var(--lg-rim-top) !important;
+}
+
+input[type="checkbox"][data-xtype="switch"]::after {
+    width: 20px !important;
+    height: 20px !important;
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.98),
+        rgba(244, 246, 250, 0.88)
+    ) !important;
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.24),
+        inset 0 1px 0 #ffffff !important;
+    transition:
+        transform 0.3s cubic-bezier(0.3, 1.36, 0.52, 1),
+        width 0.18s ease,
+        background 0.2s ease,
+        box-shadow 0.2s ease !important;
+}
+
+input[type="checkbox"][data-xtype="switch"]:active::after {
+    width: 26px !important;
+    background: radial-gradient(
+        circle at 35% 30%,
+        rgba(255, 255, 255, 0.88),
+        rgba(255, 255, 255, 0.32)
+    ) !important;
+    backdrop-filter: blur(8px);
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.24),
+        inset 0 0 0 1.5px rgba(255, 255, 255, 0.92) !important;
+}
+
+input[type="checkbox"][data-xtype="switch"]:checked {
+    background: rgba(52, 199, 89, 0.86) !important;
+    outline-color: rgba(255, 255, 255, 0.42) !important;
+    box-shadow:
+        0 0 0 3px rgba(52, 199, 89, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
+}
+
+input[type="checkbox"][data-xtype="switch"]:checked::after {
+    transform: translateX(22px) !important;
+}
+
+input[type="checkbox"][data-xtype="switch"]:checked:active::after {
+    transform: translateX(16px) !important;
+}
+
+.lg-canvas {
+    background: transparent !important;
+}
+
+/* macOS 原生红黄绿交通灯安全区与居中顶栏适配（与 Windows 观感完全一致） */
+body.is-mac .lg-sidebar {
+    padding-top: 46px !important;
+}
+
+body.is-mac .lg-topbar {
+    padding: 12px 24px 10px 24px !important;
+}

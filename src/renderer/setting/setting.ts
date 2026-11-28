@@ -42,7 +42,6 @@ import {
     getTranslators,
 } from "../lib/translate";
 import {
-    attachSpotlight,
     Class,
     cssColor,
     cssVar,
@@ -6049,6 +6048,7 @@ function jumpToPage(pageIndex: number) {
     searchClearBtn.style({ display: "none" });
     searchCountBadge.style({ display: "none" });
     sideBarG.set(String(pageIndex));
+    syncNavGlassPill();
     void showPage(main.at(pageIndex));
 }
 
@@ -6208,12 +6208,11 @@ function buildDashboardHero() {
                 lineHeight: "1.4",
             }),
         ])
-            .class(quickGridCardClass)
+            .class(quickGridCardClass, "lg-tile")
             .style({
                 animation: `punCardIn 0.26s var(--ease-out-expo) ${idx * 34}ms both`,
             })
             .on("click", item.onClick);
-        attachSpotlight(card.el);
         return card;
     });
 
@@ -6237,7 +6236,7 @@ function buildDashboardHero() {
                     );
                 });
                 const card = view("x")
-                    .class(powerToggleCardClass)
+                    .class(powerToggleCardClass, "lg-tile")
                     .style({ cursor: "pointer" })
                     .on("click", (e) => {
                         if (e.target === sw.el) return;
@@ -6264,7 +6263,7 @@ function buildDashboardHero() {
         );
 
     const hero = view("y")
-        .class(heroBannerClass)
+        .class(heroBannerClass, "lg-hero-surface")
         .add([
             view("x", "wrap")
                 .style({
@@ -6315,7 +6314,7 @@ function buildDashboardHero() {
                                     }),
                                     txt(chip.label, true),
                                 ])
-                                    .class(telemetryChipClass)
+                                    .class(telemetryChipClass, "lg-chip")
                                     .on("click", () =>
                                         jumpToPage(chip.pageIdx),
                                     ),
@@ -6331,7 +6330,6 @@ function buildDashboardHero() {
                 .add(cards),
             toggleStrip,
         ]);
-    attachSpotlight(hero.el);
     return hero;
 }
 
@@ -6359,7 +6357,7 @@ async function showPage(page: (typeof main)[0] | undefined) {
         mainView.add(buildDashboardHero());
     }
     if (page.settings && page.settings.length > 0) {
-        const card = view("y").class(settingCardClass);
+        const card = view("y").class(settingCardClass, "lg-surface");
         for (const setting of page.settings) {
             card.add(renderSetting(setting));
         }
@@ -6379,7 +6377,7 @@ async function showPage(page: (typeof main)[0] | undefined) {
                     ele("h2").add(noI18n(item.title)),
                     item.desc ? comment(item.desc) : "",
                 ]);
-            const card = view("y").class(settingCardClass);
+            const card = view("y").class(settingCardClass, "lg-surface");
             for (const setting of item.settings) {
                 card.add(renderSetting(setting));
             }
@@ -6399,7 +6397,10 @@ async function showPage(page: (typeof main)[0] | undefined) {
                     .add(txt(t("最近调整的设置")))
                     .style({ paddingInline: "4px" }),
                 (() => {
-                    const card = view("y").class(settingCardClass);
+                    const card = view("y").class(
+                        settingCardClass,
+                        "lg-surface",
+                    );
                     for (const setting of m) {
                         card.add(renderSetting(setting));
                     }
@@ -6701,7 +6702,8 @@ for (const p of main) {
         }
 }
 
-pack(document.body).style({ display: "flex" });
+pack(document.body).class("lg-window-root").style({ display: "flex" });
+if (isMac) document.body.classList.add("is-mac");
 
 setTitle(t("设置"));
 
@@ -6761,6 +6763,7 @@ const sideBar = view("y")
         gap: "2px",
     })
     .class(
+        "lg-sidebar",
         addClass(
             {},
             {
@@ -6770,20 +6773,18 @@ const sideBar = view("y")
             },
         ),
     );
+const navGlassPill = view().class("lg-nav-pill").addInto(sideBar);
 
 const clipShortcutBadge = formatShortcutBadge(
     getSet("快捷键.截屏搜索")?.key || (isMac ? "Control+Command+C" : "Alt+C"),
 );
 const brandHeader = view("y")
+    .class("lg-brand-card")
     .style({
         gap: "10px",
-        padding: "12px 10px 14px",
-        marginBottom: "6px",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "15px",
-        background:
-            "radial-gradient(circle at top left, color-mix(in srgb, var(--emphasis-color) 16%, transparent), transparent 72%), var(--surface)",
-        boxShadow: "var(--shadow-sm)",
+        padding: "13px 11px 14px",
+        marginBottom: "8px",
+        flexShrink: 0,
     })
     .add([
         view("x")
@@ -6872,19 +6873,13 @@ const brandHeader = view("y")
                     ),
             ]),
     ]);
-attachSpotlight(brandHeader.el);
 sideBar.add(brandHeader);
 
 const sideBarG = radioGroup("侧栏");
-const searchBar = view("x").style({
+const searchBar = view("x").class("lg-topbar").style({
     position: "sticky",
     top: 0,
     zIndex: 10,
-    padding: "14px 28px",
-    justifyContent: "center",
-    backgroundColor: "color-mix(in srgb, var(--bg) 76%, transparent)",
-    backdropFilter: "blur(20px) saturate(165%)",
-    borderBottom: "1px solid var(--border-subtle)",
 });
 const searchCountBadge = txt("").class("pun-pill").style({
     display: "none",
@@ -6913,10 +6908,11 @@ const searchClearBtn = button("×").attr({ title: "清空搜索" }).style({
     lineHeight: "1",
 });
 const searchWrap = view()
+    .class("lg-nodrag")
     .style({
         position: "relative",
-        width: "100%",
-        maxWidth: "796px",
+        flex: "1 1 auto",
+        maxWidth: "560px",
         display: "flex",
         alignItems: "center",
     })
@@ -6932,15 +6928,14 @@ inlineIconEl("search", 16)
     })
     .addInto(searchWrap);
 const searchI = input()
+    .class("lg-search-capsule")
     .attr({ placeholder: t("搜索设置项、功能或快捷键...") })
     .style({
         width: "100%",
-        height: "40px",
+        height: "38px",
         borderRadius: "999px",
         paddingInline: "40px 158px",
         fontSize: "13.5px",
-        backgroundColor: "var(--surface-glass)",
-        boxShadow: "var(--shadow-sm)",
     })
     .addInto(searchWrap)
     .on("input", () => {
@@ -7001,6 +6996,49 @@ ele("kbd")
     })
     .addInto(searchWrap);
 
+// 液态玻璃通透度切换胶囊（清透 / 标准 / 雾面），同步控制 Windows DWM Acrylic / Mica
+type LiquidGlassMode = "clear" | "standard" | "frosted";
+const lgModes: {
+    id: LiquidGlassMode;
+    label: string;
+    material: "acrylic" | "mica";
+}[] = [
+    { id: "clear", label: t("清透"), material: "acrylic" },
+    { id: "standard", label: t("液态"), material: "acrylic" },
+    { id: "frosted", label: t("雾面"), material: "mica" },
+];
+const savedLgMode = (localStorage.getItem("pun_lg_mode") ||
+    "clear") as LiquidGlassMode;
+const lgModeButtons = new Map<LiquidGlassMode, ReturnType<typeof button>>();
+
+function applyLiquidGlassMode(mode: LiquidGlassMode, notify = false) {
+    const valid = lgModes.find((m) => m.id === mode) ?? lgModes[1];
+    document.documentElement.dataset.lgMode = valid.id;
+    try {
+        localStorage.setItem("pun_lg_mode", valid.id);
+    } catch {}
+    for (const [id, btn] of lgModeButtons) {
+        btn.el.classList.toggle("active", id === valid.id);
+    }
+    renderSend("setting_glass_material", [valid.material]);
+    if (notify) {
+        showToast(`${t("液态玻璃")}: ${valid.label}`, "info", 1200);
+    }
+}
+
+const lgSwitcher = view("x")
+    .class("lg-mode-switcher", "lg-nodrag")
+    .attr({ title: t("切换设置窗口液态玻璃通透度") })
+    .addInto(searchBar);
+for (const m of lgModes) {
+    const b = button(m.label)
+        .class("lg-mode-btn")
+        .on("click", () => applyLiquidGlassMode(m.id, true));
+    lgModeButtons.set(m.id, b);
+    lgSwitcher.add(b);
+}
+applyLiquidGlassMode(savedLgMode, false);
+
 window.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -7013,7 +7051,7 @@ window.addEventListener("keydown", (e) => {
         showPage(main.at(Number(sideBarG.get())));
     }
 });
-const mainViewP = view().addInto().class("pun-aurora-canvas").style({
+const mainViewP = view().addInto().class("lg-canvas").style({
     overflowY: "auto",
     height: "100vh",
     flexGrow: "1",
@@ -7022,7 +7060,7 @@ mainViewP.add(searchBar);
 const mainView = view().addInto(mainViewP).style({
     maxWidth: "840px",
     margin: "0 auto",
-    padding: "24px 28px 40px",
+    padding: "16px 28px 40px",
     minHeight: "calc(100vh - 69px)",
 });
 
@@ -7035,8 +7073,8 @@ mainViewP.add(
         })
         .add(
             about()
-                .class(settingCardClass)
-                .style({ padding: "26px", borderRadius: "18px" }),
+                .class(settingCardClass, "lg-surface")
+                .style({ padding: "26px", borderRadius: "22px" }),
         ),
 );
 
@@ -7105,9 +7143,32 @@ for (const [i, page] of main.entries()) {
         );
     sideBar.add(sideEl);
 }
+function syncNavGlassPill() {
+    const activeWrap = sideBar.el.querySelector<HTMLElement>(
+        ".nav-wrap:has(input:checked)",
+    );
+    if (!activeWrap) return;
+    const top = activeWrap.offsetTop;
+    const h = activeWrap.offsetHeight;
+    navGlassPill.style({
+        transform: `translate3d(0, ${top}px, 0)`,
+        height: `${h}px`,
+    });
+    navGlassPill.el.classList.add("ready");
+}
+
 sideBarG.set("0");
+requestAnimationFrame(() => {
+    syncNavGlassPill();
+    setTimeout(syncNavGlassPill, 120);
+});
+window.addEventListener("resize", syncNavGlassPill);
+if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(syncNavGlassPill).observe(sideBar.el);
+}
 
 sideBarG.on(() => {
+    syncNavGlassPill();
     showPage(main.at(Number(sideBarG.get())));
 });
 

@@ -198,6 +198,7 @@ type Message = {
             | "super_record"
             | "image_search",
     ) => void;
+    setting_glass_material: (material: "acrylic" | "mica" | "tabbed") => void;
     github_download_asset: (data: {
         id: string;
         relPath: string;

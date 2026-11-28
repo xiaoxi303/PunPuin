@@ -1421,13 +1421,14 @@ function trackLocation() {
     const maxW = window.innerWidth;
     const maxH = window.innerHeight;
 
+    const inlineGap = 8;
     if (
         toolBar.dataset.dock === "inline" &&
-        drawW + toolW <= maxW - margin * 2
+        drawW + inlineGap + toolW <= maxW - margin * 2
     ) {
         drawBar.dataset.dock = "inline";
         const clampedToolLeft = Math.max(
-            margin + drawW,
+            margin + drawW + inlineGap,
             Math.min(toolBar.offsetLeft, maxW - toolW - margin),
         );
         const barH = Math.max(toolH, drawH);
@@ -1437,7 +1438,7 @@ function trackLocation() {
         );
         toolBar.style.left = `${Math.round(clampedToolLeft)}px`;
         toolBar.style.top = `${Math.round(clampedTop + (barH - toolH) / 2)}px`;
-        drawBar.style.left = `${Math.round(clampedToolLeft - drawW)}px`;
+        drawBar.style.left = `${Math.round(clampedToolLeft - drawW - inlineGap)}px`;
         drawBar.style.top = `${Math.round(clampedTop + (barH - drawH) / 2)}px`;
         scheduleElementBarPosition();
         return;
@@ -3934,10 +3935,14 @@ function followBar(op?: { x: number; y: number }) {
     const margin = 10;
     const innerPad = 12;
 
-    if (!drawBarManualMoved && drawW + toolW <= maxWidth - margin * 2) {
+    const inlineGap = 8;
+    if (
+        !drawBarManualMoved &&
+        drawW + inlineGap + toolW <= maxWidth - margin * 2
+    ) {
         drawBar.dataset.dock = "inline";
         toolBar.dataset.dock = "inline";
-        const totalW = drawW + toolW;
+        const totalW = drawW + inlineGap + toolW;
         const barH = Math.max(toolH, drawH);
         let top = 0;
         let insideSelection = false;
@@ -3997,7 +4002,7 @@ function followBar(op?: { x: number; y: number }) {
 
         drawBar.style.left = `${Math.round(dockLeft)}px`;
         drawBar.style.top = `${Math.round(top + (barH - drawH) / 2)}px`;
-        toolBar.style.left = `${Math.round(dockLeft + drawW)}px`;
+        toolBar.style.left = `${Math.round(dockLeft + drawW + inlineGap)}px`;
         toolBar.style.top = `${Math.round(top + (barH - toolH) / 2)}px`;
         drawBar.style.opacity = toolBar.style.opacity = "1";
         scheduleElementBarPosition();
@@ -5145,8 +5150,6 @@ const tools: 功能列表 = [
     "save",
 ];
 
-const hotkeyTipEl = view().attr({ id: "hotkeys_tip" }).class(Class.glassBar);
-
 const toolsX: Record<功能, { el: ElType<HTMLElement>; f: () => void }> = {
     close: {
         el: iconEl("close").attr({ title: "关闭" }),
@@ -5858,7 +5861,6 @@ const longTip = frame("long_tip", {
 
 const longPreview = view().style({ position: "fixed" });
 
-hotkeyTipEl.addInto();
 toolBarEl.addInto();
 whEl.addInto();
 longTip.el.addInto();
@@ -6087,50 +6089,6 @@ type hotkeyScope = "normal" | "c_bar" | "drawing";
 const hotkeyScopes: hotkeyScope[] = [];
 
 const drawHotKey = store.get("截屏编辑快捷键");
-
-type hotkeyTip = { name: string; keys: string[] }[];
-const hotkeyTipX: { name: string; hotkey: hotkeyTip }[] = [
-    {
-        name: "画布",
-        hotkey: [
-            { name: "移动", keys: [t("方向键"), "wheel"] },
-            { name: "缩放", keys: ["Control+wheel"] },
-        ],
-    },
-    {
-        name: "框选",
-        hotkey: [
-            { name: "全选", keys: ["Control+A"] },
-            { name: "移动和调节", keys: [t("按住+方向键")] },
-            { name: "×5", keys: ["+Control+"] },
-            { name: "×10", keys: ["+Shift+"] },
-            { name: "左上x", keys: [store.get("大小栏快捷键.左上x")] },
-            { name: "左上y", keys: [store.get("大小栏快捷键.左上y")] },
-            { name: "右下x", keys: [store.get("大小栏快捷键.右下x")] },
-            { name: "右下y", keys: [store.get("大小栏快捷键.右下y")] },
-            { name: "宽", keys: [store.get("大小栏快捷键.宽")] },
-            { name: "高", keys: [store.get("大小栏快捷键.高")] },
-            { name: "自动框选", keys: ["S"] },
-            { name: "匹配自动框选", keys: [`Shift ${t("框选")}`] },
-        ],
-    },
-    {
-        name: "数值",
-        hotkey: [
-            { name: "大", keys: ["Up"] },
-            { name: "小", keys: ["Down"] },
-            { name: "取消更改", keys: ["RightKey"] },
-        ],
-    },
-    {
-        name: "取色器",
-        hotkey: [
-            { name: "展示所有颜色格式", keys: ["RightKey"] },
-            { name: "复制颜色", keys: [store.get("其他快捷键.复制颜色")] },
-        ],
-    },
-    { name: "快捷键", hotkey: [{ name: "展示", keys: ["Alt"] }] },
-];
 
 let autoDo = store.get("框选后默认操作");
 
@@ -6867,40 +6825,6 @@ function showShortKey(k: string) {
         .split("+")
         .map((k) => jsKeyCodeDisplay(ele2jsKeyCode(k)).primary)
         .join("");
-}
-
-// alt显示快捷键
-let altT: number;
-document.addEventListener("keydown", (e) => {
-    if (e.key === "Alt" && !longRunning) {
-        altT = window.setTimeout(() => {
-            document.documentElement.style.setProperty(
-                "--hotkey-show",
-                "block",
-            );
-        }, 400);
-    }
-});
-document.addEventListener("keyup", (e) => {
-    if (e.key === "Alt") {
-        clearTimeout(altT);
-        document.documentElement.style.setProperty("--hotkey-show", "none");
-    }
-});
-
-for (const m of hotkeyTipX) {
-    hotkeyTipEl.add(p(t(m.name)));
-    for (const k of m.hotkey) {
-        const x = view().add(txt(t(k.name)));
-        for (let s of k.keys) {
-            s = s
-                .split("+")
-                .map((k) => jsKeyCodeDisplay(ele2jsKeyCode(k)).primary)
-                .join("+");
-            x.add(txt(s));
-        }
-        hotkeyTipEl.add(x);
-    }
 }
 
 setDefaultAction(autoDo);

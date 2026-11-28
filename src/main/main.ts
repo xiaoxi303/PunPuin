@@ -3054,6 +3054,24 @@ mainOn("setting_quick_action", ([action]) => {
         });
     }
 });
+mainOn("setting_glass_material", ([material]) => {
+    if (!settingWindow || settingWindow.isDestroyed()) return;
+    if (process.platform === "win32") {
+        try {
+            settingWindow.setBackgroundMaterial(material);
+        } catch (err) {
+            console.warn("setBackgroundMaterial failed:", err);
+        }
+    } else if (process.platform === "darwin") {
+        try {
+            settingWindow.setVibrancy(
+                material === "mica" ? "sidebar" : "under-window",
+            );
+        } catch (err) {
+            console.warn("setVibrancy failed:", err);
+        }
+    }
+});
 mainOn("reloadMainFromSetting", () => {
     if (!clipSessionActive) {
         destroyClipWindow();
@@ -4092,21 +4110,63 @@ async function createSettingWindow() {
         settingWindow.focus();
         return;
     }
-    settingWindow = new BrowserWindow({
-        minWidth: 740,
-        width: 1020,
-        height: 720,
-        ...baseWinConfig(),
+    const baseCfg = baseWinConfig();
+    const isWin = process.platform === "win32";
+    const isMacOs = process.platform === "darwin";
+    const isDark = nativeTheme.shouldUseDarkColors;
+    const win = new BrowserWindow({
+        ...baseCfg,
+        minWidth: 780,
+        width: 1100,
+        height: 750,
+        backgroundColor: "#00000000",
+        titleBarStyle: isWin || isMacOs ? "hidden" : "default",
+        ...(isWin
+            ? {
+                  backgroundMaterial: "acrylic" as const,
+                  titleBarOverlay: {
+                      color: "#00000000",
+                      symbolColor: isDark ? "#f8fafc" : "#0f172a",
+                      height: 36,
+                  },
+              }
+            : {}),
+        ...(isMacOs
+            ? {
+                  vibrancy: "under-window" as const,
+                  visualEffectState: "active" as const,
+                  trafficLightPosition: { x: 24, y: 24 },
+              }
+            : {}),
+    });
+    settingWindow = win;
+
+    const syncOverlayTheme = () => {
+        if (!isWin || win.isDestroyed()) return;
+        try {
+            win.setTitleBarOverlay({
+                color: "#00000000",
+                symbolColor: nativeTheme.shouldUseDarkColors
+                    ? "#f8fafc"
+                    : "#0f172a",
+                height: 36,
+            });
+        } catch {}
+    };
+    nativeTheme.on("updated", syncOverlayTheme);
+    win.on("closed", () => {
+        nativeTheme.off("updated", syncOverlayTheme);
+        if (settingWindow === win) settingWindow = null;
     });
 
-    rendererPath(settingWindow, "setting.html");
+    rendererPath(win, "setting.html");
 
-    await settingWindow.webContents.session.setProxy(store.get("代理"));
+    await win.webContents.session.setProxy(store.get("代理"));
 
-    if (dev) settingWindow.webContents.openDevTools();
+    if (dev) win.webContents.openDevTools();
 
-    settingWindow.webContents.on("did-finish-load", () => {
-        settingWindow?.webContents.setZoomFactor(store.get("全局.缩放") || 1.0);
+    win.webContents.on("did-finish-load", () => {
+        win.webContents.setZoomFactor(store.get("全局.缩放") || 1.0);
     });
 }
 
