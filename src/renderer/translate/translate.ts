@@ -1,5 +1,5 @@
 import { matchFitLan } from "xtranslator";
-import { Class, cssColor, getImgUrl, initStyle } from "../root/root";
+import { Class, cssColor, getImgUrl, initStyle, showToast } from "../root/root";
 
 const fs = require("node:fs") as typeof import("fs");
 
@@ -135,10 +135,27 @@ const swapLangBtn = iconButton("replace")
         const fromV = lansFrom.gv;
         const toV = lansTo.gv;
         if (!toV || fromV === "auto") return;
+        const ic = swapLangBtn.el.querySelector<HTMLElement>(".icon");
+        if (ic) {
+            ic.animate(
+                [
+                    { transform: "rotate(0deg)" },
+                    { transform: "rotate(180deg)" },
+                ],
+                { duration: 260, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+            );
+        }
         lansFrom.sv(toV);
         lansTo.sv(fromV);
         translate(input.el.value);
     });
+
+input.on("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        translate(input.el.value);
+    }
+});
 
 const results = view("y").style({
     gap: "12px",
@@ -168,7 +185,7 @@ function translate(_text: string) {
     const fromLan = lansFrom.gv;
     const toLan = lansTo.gv;
 
-    for (const i of fyq) {
+    for (const [cardIdx, i] of fyq.entries()) {
         const copy = iconButton("copy");
         const save = iconButton("star").style({
             display:
@@ -181,10 +198,13 @@ function translate(_text: string) {
             display: fromLan === "auto" ? "none" : "", // todo 读取自动语言
         });
         const e = frame(`result${i.id}`, {
-            _: view().class("pun-card").style({
-                width: "100%",
-                padding: "12px 14px",
-            }),
+            _: view()
+                .class("pun-card")
+                .style({
+                    width: "100%",
+                    padding: "12px 14px",
+                    animation: `punCardIn 0.24s var(--ease-out-expo) ${Math.min(cardIdx * 45, 220)}ms both`,
+                }),
             title: {
                 _: view("x")
                     .style({
@@ -202,7 +222,7 @@ function translate(_text: string) {
                 _spacer: spacer(),
                 name: txt(i.name).class("pun-pill"),
             },
-            content: pText(t("翻译中...")).style({
+            content: pText(t("翻译中...")).class("pun-shimmer-text").style({
                 lineHeight: "1.6",
                 userSelect: "text",
             }),
@@ -214,7 +234,27 @@ function translate(_text: string) {
         });
         results.add(e.el);
         const c = e.els.content;
+        let currentTranslated = "";
+        copy.on("click", () => {
+            if (!currentTranslated) return;
+            void writeText(currentTranslated);
+            copy.attr({ title: t("已复制") });
+            showToast(t("已复制"), "success");
+        });
+        save.on("click", () => {
+            if (!currentTranslated) return;
+            saveW({
+                from: fromLan,
+                to: toLan,
+                fromT: text,
+                toT: currentTranslated,
+                engine: i.name,
+            });
+            showToast(t("已保存"), "success");
+        });
         const f = () => {
+            currentTranslated = "";
+            c.el.classList.add("pun-shimmer-text");
             c.sv(t("翻译中..."));
             const ff = fanyiqi.get(i.id);
             if (!ff) throw `翻译器"${i.id}"不存在`;
@@ -224,29 +264,19 @@ function translate(_text: string) {
                 .then((_ttext: string) => {
                     e.el.style({ order: 0 });
                     const ttext = _ttext.trim();
+                    currentTranslated = ttext;
+                    c.el.classList.remove("pun-shimmer-text");
                     c.sv(ttext);
-                    copy.on("click", () => {
-                        writeText(ttext);
-                        copy.attr({ title: t("已复制") });
-                    });
-                    save.on("click", () => {
-                        saveW({
-                            from: fromLan,
-                            to: toLan,
-                            fromT: text,
-                            toT: ttext,
-                            engine: i.name,
-                        });
-                    });
-                    checkEl.on("click", async () => {
-                        const t = await ff
+                    checkEl.el.onclick = async () => {
+                        const ret = await ff
                             // @ts-ignore
                             .run(ttext, toLan, fromLan);
-                        e.els.reTrans.sv(t);
-                    });
+                        e.els.reTrans.sv(ret);
+                    };
                 })
                 .catch((err: Error) => {
                     console.error(err);
+                    c.el.classList.remove("pun-shimmer-text");
                     e.el.style({ order: 1 });
                     if (err.message.includes("[1]")) {
                         c.sv(

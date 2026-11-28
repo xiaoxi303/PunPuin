@@ -348,6 +348,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         store.get("屏幕翻译.语言.to") || store.get("语言.语言") || "zh-Hans";
 
     const overlayEl = view().attr({ id: "clip_inline_overlay" }).addInto();
+    view().class("inline-scan-beam").addInto(overlayEl);
     const contentEl = view()
         .attr({ id: "clip_inline_content" })
         .addInto(overlayEl);
@@ -422,6 +423,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
             "mode-ocr",
             "mode-translate",
             "comparing",
+            "scanning",
         );
         barEl.el.classList.remove("active");
         contentEl.clear();
@@ -478,6 +480,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
     }
 
     function renderLoadingBar(label: string) {
+        overlayEl.el.classList.add("scanning");
         barEl.clear().add([
             view().class("inline-spinner"),
             txt(label).class("inline-status"),
@@ -497,7 +500,11 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
     ) {
         contentEl.clear();
         overlayEl.el.classList.add("active", "mode-ocr");
-        overlayEl.el.classList.remove("mode-translate", "comparing");
+        overlayEl.el.classList.remove(
+            "mode-translate",
+            "comparing",
+            "scanning",
+        );
 
         const r = host.getFinalRect();
         const displayW = Math.max(
@@ -610,7 +617,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
     ) {
         contentEl.clear();
         overlayEl.el.classList.add("active", "mode-translate");
-        overlayEl.el.classList.remove("mode-ocr");
+        overlayEl.el.classList.remove("mode-ocr", "scanning");
         overlayEl.el.classList.toggle("comparing", showOriginalCompare);
 
         // 直接在原分辨率画布上做无缝擦除与译文绘制，界面预览与复制/保存导出完全一致、无任何外框
@@ -777,6 +784,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         } catch (error) {
             if (mySeq !== runSeq) return true;
             console.error("原地 OCR 识别失败", error);
+            overlayEl.el.classList.remove("scanning");
             barEl
                 .clear()
                 .add([
@@ -814,6 +822,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
             if (mySeq !== runSeq) return;
             if (!recognized || recognized.paragraphs.length === 0) {
                 translatedBlocks = [];
+                overlayEl.el.classList.remove("scanning");
                 barEl
                     .clear()
                     .add([
@@ -896,6 +905,7 @@ export function createInlineOcrTranslate(host: HostCallbacks) {
         } catch (error) {
             if (mySeq !== runSeq) return;
             console.error("原地翻译失败", error);
+            overlayEl.el.classList.remove("scanning");
             const msg = error instanceof Error ? error.message : String(error);
             barEl.clear().add([
                 txt(`${t("翻译失败")}：${msg}`).class("inline-status"),

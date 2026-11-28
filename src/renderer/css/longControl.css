@@ -21,8 +21,11 @@ body {
     font-family: var(--main-font);
     background: var(--bg);
     border: 1px solid var(--glass-border);
-    border-radius: 12px;
-    box-shadow: var(--shadow-lg);
+    border-radius: 13px;
+    box-shadow:
+        var(--shadow-lg),
+        inset 0 1px 0 var(--glass-highlight);
+    animation: punCardIn 0.2s var(--ease-out-expo);
 }
 
 #lc_head {

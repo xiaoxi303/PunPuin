@@ -10,6 +10,7 @@ import {
 } from "dkh-ui";
 import { renderOn, renderSend, renderSendSync } from "../../../lib/ipc";
 import store from "../../../lib/store/renderStore";
+import { t } from "../../../lib/translate/translate";
 import type { IconType } from "../../iconTypes";
 import type {
     CaptureSourceInfo,
@@ -23,7 +24,7 @@ import {
     imageFormatMime,
     isImageFormatSupported,
 } from "../lib/imageExport";
-import { Class, getImgUrl } from "../root/root";
+import { Class, getImgUrl, showToast } from "../root/root";
 import { dxdy, type Frame } from "./layout";
 import { drawTranslation, preTranAndOcr, UnConfigTranslateError } from "./ocr";
 
@@ -83,13 +84,14 @@ export type DingItem = {
 
 const dingPhotoClass = addClass(
     {
-        borderRadius: "8px",
-        transition: "box-shadow var(--transition)",
+        borderRadius: "10px",
+        transition: "box-shadow var(--transition), transform var(--transition)",
+        animation: "punCardIn 0.2s var(--ease-out-expo)",
     },
     {
         "&:hover": {
             boxShadow:
-                "var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--emphasis-color) 45%, transparent)",
+                "var(--shadow-lg), 0 0 0 1.5px color-mix(in srgb, var(--emphasis-color) 52%, transparent)",
         },
         "&:focus": {
             outline: "none",
@@ -255,6 +257,7 @@ export async function copyDing(data: DingItemData, url = getUrl(data)) {
     const response = await fetch(url);
     const blob = await response.blob();
     await writeImage(blob);
+    showToast(t("已复制到剪贴板"), "success");
 }
 
 export async function saveDing(data: DingItemData, url = getUrl(data)) {
@@ -553,11 +556,13 @@ export function createDingItem(opts: DingItemOptions): DingItem {
                 el.setAttribute("data-show", String(v.show));
             if (el.getAttribute("data-force-show") === "true") {
                 el.style.transform = "translateY(0)";
+                el.style.opacity = "1";
             } else {
-                el.style.transform =
-                    el.getAttribute("data-show") === "true"
-                        ? "translateY(0)"
-                        : "translateY(-105%)";
+                const visible = el.getAttribute("data-show") === "true";
+                el.style.transform = visible
+                    ? "translateY(0)"
+                    : "translateY(-108%)";
+                el.style.opacity = visible ? "1" : "0";
             }
         })
         .sv({ show: false })

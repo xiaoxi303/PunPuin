@@ -46,7 +46,14 @@ import {
     imageFormatMime,
     isImageFormatSupported,
 } from "../lib/imageExport";
-import { Class, cssColor, getImgUrl, initStyle, setTitle } from "../root/root";
+import {
+    Class,
+    cssColor,
+    getImgUrl,
+    initStyle,
+    setTitle,
+    showToast,
+} from "../root/root";
 
 import initScreenShots, { getWindowInfos } from "../screenShot/screenShot";
 import EdgeWorker from "./edgeWorker?worker";
@@ -3888,9 +3895,11 @@ function changeRightBar(v: boolean) {
  * 复制内容
  */
 function copy(e: ElType<HTMLElement>) {
-    writeText(e.el.innerText);
+    const text = e.el.innerText.trim();
+    writeText(text);
     rightKey = false;
     changeRightBar(false);
+    if (text) showToast(`${t("已复制")} ${text}`, "success", 1400);
 }
 
 /**

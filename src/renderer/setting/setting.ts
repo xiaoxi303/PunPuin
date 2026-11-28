@@ -48,6 +48,7 @@ import {
     initStyle,
     monoFont,
     setTitle,
+    showToast,
 } from "../root/root";
 
 const { shell, webUtils } = require("electron") as typeof import("electron");
@@ -2217,6 +2218,7 @@ const xs: Record<
                             getFromStore(defaultSetting, x as SettingPath),
                         );
                     }
+                    showToast(t("已恢复默认设置"), "success");
                 }),
                 button("显示更改的设置").on("click", () => {
                     const defaultSetting = getDefaultSetting();
@@ -2905,9 +2907,13 @@ const bindF2: { f: (has: boolean) => void; keys: SettingPath[] }[] = [
             if (h)
                 reloadScreenShot
                     .add(
-                        button("重启截屏以生效").on("click", () => {
-                            renderSend("reloadMainFromSetting", []);
-                        }),
+                        button("重启截屏以生效")
+                            .class("pun-btn-primary")
+                            .style({ width: "100%", borderRadius: "10px" })
+                            .on("click", () => {
+                                renderSend("reloadMainFromSetting", []);
+                                showToast(t("正在重启截屏窗口..."), "info");
+                            }),
                     )
                     .style({ display: "" });
             else reloadScreenShot.style({ display: "none" });
@@ -2944,9 +2950,12 @@ const bindF2: { f: (has: boolean) => void; keys: SettingPath[] }[] = [
             if (h)
                 reloadEl
                     .add(
-                        button("重启软件以生效").on("click", () => {
-                            renderSend("reload", []);
-                        }),
+                        button("重启软件以生效")
+                            .class("pun-btn-primary")
+                            .style({ width: "100%", borderRadius: "10px" })
+                            .on("click", () => {
+                                renderSend("reload", []);
+                            }),
                     )
                     .style({ display: "" });
             else reloadEl.style({ display: "none" });
@@ -3021,6 +3030,7 @@ function setSet<t extends SettingPath>(k: t, v: GetValue<setting, t>) {
                     setSet(x, getFromStore(oldStore, x));
                     reRenderSetting(x);
                 }
+                showToast(t("已撤销本次修改"), "info");
             }),
         ]);
     }
@@ -3234,6 +3244,10 @@ const sideNavItemClass = addClass(
         "&:hover": {
             backgroundColor: "var(--hover-color)",
             color: "var(--font-color)",
+            transform: "translateX(2px)",
+        },
+        "&:active": {
+            transform: "scale(0.98)",
         },
         "&:hover .nav-icon": {
             opacity: 0.95,
@@ -6034,7 +6048,7 @@ function buildDashboardHero() {
                     gap: "10px",
                 })
                 .add(
-                    quickItems.map((item) =>
+                    quickItems.map((item, idx) =>
                         button([
                             view("x")
                                 .style({
@@ -6063,23 +6077,28 @@ function buildDashboardHero() {
                             }),
                         ])
                             .class(quickGridCardClass)
+                            .style({
+                                animation: `punCardIn 0.24s var(--ease-out-expo) ${idx * 40}ms both`,
+                            })
                             .on("click", item.onClick),
                     ),
                 ),
         ]);
 }
 
+let showPageSeq = 0;
+
 async function showPage(page: (typeof main)[0] | undefined) {
     if (!page) {
         console.warn("Page not found");
         return;
     }
+    const seq = ++showPageSeq;
     mainView.clear();
     mainViewP.el.scrollTop = 0;
     mainView.el.style.animation = "none";
     void mainView.el.offsetWidth;
-    mainView.el.style.animation =
-        "punPageFadeIn 0.2s cubic-bezier(0.22, 1, 0.36, 1)";
+    mainView.el.style.animation = "punPageFadeIn 0.24s var(--ease-out-expo)";
     const header = view("y")
         .style({ gap: "4px", marginBottom: "18px" })
         .add([
@@ -6098,8 +6117,13 @@ async function showPage(page: (typeof main)[0] | undefined) {
         mainView.add(card);
     }
     if (page.items) {
-        for (const item of page.items) {
-            const section = view("y").class(settingSectionClass);
+        for (const [secIdx, item] of page.items.entries()) {
+            if (seq !== showPageSeq) return;
+            const section = view("y")
+                .class(settingSectionClass)
+                .style({
+                    animation: `punCardIn 0.22s var(--ease-out-expo) ${Math.min(secIdx * 32, 160)}ms both`,
+                });
             const titleRow = view("y")
                 .style({ gap: "2px", paddingInline: "4px" })
                 .add([
@@ -6116,6 +6140,7 @@ async function showPage(page: (typeof main)[0] | undefined) {
             await scheduler.yield();
         }
     }
+    if (seq !== showPageSeq) return;
     if (page.isMemo) {
         const m = getSettingMem();
         if (m.length > 0) {

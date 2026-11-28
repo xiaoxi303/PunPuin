@@ -69,7 +69,10 @@ body .hover_b {
 
 #text_out {
     box-sizing: border-box;
-    transition: var(--transition);
+    transition:
+        border-color var(--transition),
+        box-shadow var(--transition),
+        background-color var(--transition);
     display: flex;
     flex: 1;
     border-radius: 14px;
@@ -83,6 +86,12 @@ body .hover_b {
     position: relative;
     height: 100%;
     overflow: hidden;
+}
+#text_out:focus-within {
+    border-color: color-mix(in srgb, var(--emphasis-color) 46%, transparent);
+    box-shadow:
+        var(--shadow-sm),
+        0 0 0 3px var(--accent-soft);
 }
 #line_num {
     margin: 0 8px;
@@ -166,8 +175,13 @@ body .hover_b {
     transition: var(--transition);
 }
 #history_list > div:hover {
-    border-color: var(--border-color);
+    border-color: color-mix(
+        in srgb,
+        var(--emphasis-color) 32%,
+        var(--border-color)
+    );
     box-shadow: var(--shadow);
+    transform: translateY(-2px);
 }
 .history_title {
     height: 28px;
@@ -206,7 +220,7 @@ body .hover_b {
     z-index: 3;
     border-radius: 12px;
     border: 1px solid var(--glass-border);
-    backdrop-filter: var(--blur) saturate(170%);
+    backdrop-filter: var(--blur) saturate(185%);
     box-shadow:
         var(--shadow-lg),
         inset 0 1px 0 var(--glass-highlight);
@@ -218,13 +232,18 @@ body .hover_b {
     background-color: var(--bar-bg);
     display: flex;
     top: 0;
+    transition:
+        opacity 0.16s ease,
+        transform 0.2s var(--ease-out-expo);
 }
 .edit_h {
     opacity: 0;
+    transform: translateY(4px) scale(0.95);
     pointer-events: none;
 }
 .edit_s {
     opacity: 1;
+    transform: translateY(0) scale(1);
     pointer-events: auto;
 }
 #edit_b > div {

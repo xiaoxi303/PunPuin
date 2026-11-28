@@ -60,39 +60,30 @@ function initStyle(
         },
     });
 
-    const topTip = view()
-        .class(Class.glassBar)
-        .style({
-            position: "fixed",
-            pointerEvents: "none",
-            padding: "5px 11px",
-            borderRadius: "9px",
-            fontSize: "12px",
-            fontWeight: "500",
-            lineHeight: "1.35",
-            width: "auto",
-            height: "auto",
-            zIndex: 9999,
-            transition:
-                "opacity var(--transition), transform var(--transition)",
-            whiteSpace: "pre",
-            transform: "translateY(3px)",
-            opacity: 0,
-        })
-        .addInto()
-        .bindSet((v: string, el) => {
-            el.innerText = v;
-        });
+    const topTipLabel = document.createElement("span");
+    const topTipKbd = document.createElement("span");
+    topTipKbd.className = "pun-tooltip-kbd";
+    topTipKbd.style.display = "none";
+
+    const topTip = view().class(Class.glassBar, "pun-tooltip").addInto();
+    topTip.el.append(topTipLabel, topTipKbd);
 
     const tipDelay = 220;
+    const warmWindowMs = 320;
     let tipEl: HTMLElement | null = null;
     let tipTimer: ReturnType<typeof setTimeout> | undefined;
+    let tipVisible = false;
+    let lastTipHideAt = 0;
 
     function hideTip() {
         clearTimeout(tipTimer);
         tipTimer = undefined;
         tipEl = null;
-        topTip.style({ opacity: 0, transform: "translateY(3px)" });
+        if (tipVisible) {
+            tipVisible = false;
+            lastTipHideAt = performance.now();
+        }
+        topTip.el.classList.remove("show");
     }
 
     function showTip(el: HTMLElement) {
@@ -101,26 +92,36 @@ function initStyle(
             hideTip();
             return;
         }
+        const keyHint = el.getAttribute("data-key")?.trim();
+        topTipLabel.textContent = title;
+        if (keyHint) {
+            topTipKbd.textContent = keyHint;
+            topTipKbd.style.display = "inline-flex";
+        } else {
+            topTipKbd.style.display = "none";
+        }
         const rect = el.getBoundingClientRect();
-        topTip.sv(title);
         const tw = topTip.el.offsetWidth;
         const th = topTip.el.offsetHeight;
         const ow = window.innerWidth;
         const oh = window.innerHeight;
         const left = Math.max(
-            0,
-            Math.min(rect.left + rect.width / 2 - tw / 2, ow - tw),
+            6,
+            Math.min(rect.left + rect.width / 2 - tw / 2, ow - tw - 6),
         );
-        let top = rect.bottom + 6;
-        if (top > oh - th) {
-            top = rect.top - th - 6;
+        let top = rect.bottom + 7;
+        let placedAbove = false;
+        if (top > oh - th - 6) {
+            top = rect.top - th - 7;
+            placedAbove = true;
         }
         topTip.style({
-            opacity: 1,
-            transform: "translateY(0)",
-            left: `${left}px`,
-            top: `${Math.max(Math.min(top, oh - th), 0)}px`,
+            left: `${Math.round(left)}px`,
+            top: `${Math.round(Math.max(Math.min(top, oh - th - 6), 6))}px`,
+            transformOrigin: placedAbove ? "bottom center" : "top center",
         });
+        tipVisible = true;
+        topTip.el.classList.add("show");
     }
 
     window.addEventListener("pointerover", (e) => {
@@ -131,12 +132,17 @@ function initStyle(
             return;
         }
         if (tEl === tipEl) return;
+        const isWarm =
+            tipVisible || performance.now() - lastTipHideAt < warmWindowMs;
         hideTip();
         tipEl = tEl;
-        tipTimer = setTimeout(() => {
-            tipTimer = undefined;
-            if (tipEl === tEl) showTip(tEl);
-        }, tipDelay);
+        tipTimer = setTimeout(
+            () => {
+                tipTimer = undefined;
+                if (tipEl === tEl) showTip(tEl);
+            },
+            isWarm ? 35 : tipDelay,
+        );
     });
 
     window.addEventListener("pointerout", (e) => {
@@ -146,11 +152,44 @@ function initStyle(
         hideTip();
     });
 
+    window.addEventListener("pointerdown", hideTip, { passive: true });
     window.addEventListener("blur", hideTip);
 
     document.addEventListener("visibilitychange", () => {
         if (document.hidden) hideTip();
     });
+}
+
+let toastRoot: HTMLDivElement | null = null;
+let toastTextEl: HTMLSpanElement | null = null;
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+type ToastTone = "info" | "success" | "warn" | "error";
+
+function showToast(
+    message: string,
+    tone: ToastTone = "info",
+    durationMs = 1800,
+) {
+    if (!message) return;
+    if (!toastRoot) {
+        toastRoot = document.createElement("div");
+        toastRoot.className = `${Class.glassBar} pun-toast`;
+        const dot = document.createElement("span");
+        dot.className = "pun-toast-dot";
+        toastTextEl = document.createElement("span");
+        toastRoot.append(dot, toastTextEl);
+        document.body.appendChild(toastRoot);
+    }
+    toastRoot.dataset.tone = tone;
+    if (toastTextEl) toastTextEl.textContent = message;
+    clearTimeout(toastTimer);
+    toastRoot.classList.remove("show");
+    void toastRoot.offsetWidth;
+    toastRoot.classList.add("show");
+    toastTimer = setTimeout(() => {
+        toastRoot?.classList.remove("show");
+    }, durationMs);
 }
 
 function getImgUrl(name: RawIconType) {
@@ -290,4 +329,13 @@ function cssVarR(x: string) {
     return `var(--${x})`;
 }
 
-export { Class, cssColor, cssVar, getImgUrl, initStyle, monoFont, setTitle };
+export {
+    Class,
+    cssColor,
+    cssVar,
+    getImgUrl,
+    initStyle,
+    monoFont,
+    setTitle,
+    showToast,
+};
