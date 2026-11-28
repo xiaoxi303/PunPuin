@@ -1341,6 +1341,7 @@ function 记忆框选f() {
 // 关闭
 async function closeWin() {
     inlineOcr.clear();
+    setHotkeyTipVisible(false);
     isShowBars = false;
     showBars(false);
     currentScreenImageData = null;
@@ -5150,6 +5151,8 @@ const tools: 功能列表 = [
     "save",
 ];
 
+const hotkeyTipEl = view().attr({ id: "hotkeys_tip" }).class(Class.glassBar);
+
 const toolsX: Record<功能, { el: ElType<HTMLElement>; f: () => void }> = {
     close: {
         el: iconEl("close").attr({ title: "关闭" }),
@@ -5862,6 +5865,7 @@ const longTip = frame("long_tip", {
 const longPreview = view().style({ position: "fixed" });
 
 toolBarEl.addInto();
+hotkeyTipEl.addInto();
 whEl.addInto();
 longTip.el.addInto();
 longPreview.addInto();
@@ -6089,6 +6093,50 @@ type hotkeyScope = "normal" | "c_bar" | "drawing";
 const hotkeyScopes: hotkeyScope[] = [];
 
 const drawHotKey = store.get("截屏编辑快捷键");
+
+type hotkeyTip = { name: string; keys: string[] }[];
+const hotkeyTipX: { name: string; hotkey: hotkeyTip }[] = [
+    {
+        name: "画布",
+        hotkey: [
+            { name: "移动", keys: [t("方向键"), "wheel"] },
+            { name: "缩放", keys: ["Control+wheel"] },
+        ],
+    },
+    {
+        name: "框选",
+        hotkey: [
+            { name: "全选", keys: ["Control+A"] },
+            { name: "移动和调节", keys: [t("按住+方向键")] },
+            { name: "×5", keys: ["+Control+"] },
+            { name: "×10", keys: ["+Shift+"] },
+            { name: "左上x", keys: [store.get("大小栏快捷键.左上x")] },
+            { name: "左上y", keys: [store.get("大小栏快捷键.左上y")] },
+            { name: "右下x", keys: [store.get("大小栏快捷键.右下x")] },
+            { name: "右下y", keys: [store.get("大小栏快捷键.右下y")] },
+            { name: "宽", keys: [store.get("大小栏快捷键.宽")] },
+            { name: "高", keys: [store.get("大小栏快捷键.高")] },
+            { name: "自动框选", keys: ["S"] },
+            { name: "匹配自动框选", keys: [`Shift ${t("框选")}`] },
+        ],
+    },
+    {
+        name: "数值",
+        hotkey: [
+            { name: "大", keys: ["Up"] },
+            { name: "小", keys: ["Down"] },
+            { name: "取消更改", keys: ["RightKey"] },
+        ],
+    },
+    {
+        name: "取色器",
+        hotkey: [
+            { name: "展示所有颜色格式", keys: ["RightKey"] },
+            { name: "复制颜色", keys: [store.get("其他快捷键.复制颜色")] },
+        ],
+    },
+    { name: "快捷键", hotkey: [{ name: "展示", keys: ["H", "?"] }] },
+];
 
 let autoDo = store.get("框选后默认操作");
 
@@ -6825,6 +6873,50 @@ function showShortKey(k: string) {
         .split("+")
         .map((k) => jsKeyCodeDisplay(ele2jsKeyCode(k)).primary)
         .join("");
+}
+
+let hotkeyTipVisible = false;
+function setHotkeyTipVisible(visible: boolean) {
+    hotkeyTipVisible = visible;
+    document.documentElement.style.setProperty(
+        "--hotkey-show",
+        visible ? "block" : "none",
+    );
+}
+
+// 按 H 或 ? 开关液态玻璃快捷键/画布提示浮窗（不与截图键冲突）
+document.addEventListener(
+    "keydown",
+    (e) => {
+        if (longRunning || e.ctrlKey || e.metaKey || e.altKey) return;
+        const tag = (document.activeElement as HTMLElement | null)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        if (e.key === "h" || e.key === "H" || e.key === "?") {
+            e.preventDefault();
+            e.stopPropagation();
+            setHotkeyTipVisible(!hotkeyTipVisible);
+        } else if (e.key === "Escape" && hotkeyTipVisible) {
+            e.preventDefault();
+            e.stopPropagation();
+            setHotkeyTipVisible(false);
+        }
+    },
+    true,
+);
+
+for (const m of hotkeyTipX) {
+    hotkeyTipEl.add(p(t(m.name)));
+    for (const k of m.hotkey) {
+        const x = view().add(txt(t(k.name)));
+        for (let s of k.keys) {
+            s = s
+                .split("+")
+                .map((k) => jsKeyCodeDisplay(ele2jsKeyCode(k)).primary)
+                .join("+");
+            x.add(txt(s));
+        }
+        hotkeyTipEl.add(x);
+    }
 }
 
 setDefaultAction(autoDo);

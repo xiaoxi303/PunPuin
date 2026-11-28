@@ -4724,6 +4724,12 @@ function fixSettingTree() {
 
 function versionTrans() {
     const version = store.get("设置版本");
+    if (version && versionCompare(version, "0.2.3") < 0) {
+        const curClipKey = store.get("快捷键.截屏搜索.key");
+        if (curClipKey === "Alt+C" || curClipKey === "Control+Command+C") {
+            store.set("快捷键.截屏搜索.key", "F1");
+        }
+    }
     if (store.get("屏幕翻译.语言.from") === "") {
         store.set("屏幕翻译.语言.from", "auto");
     }

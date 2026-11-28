@@ -245,9 +245,10 @@ jobs:
           name: PunPun ${{ steps.meta.outputs.tag_name }} 正式版
           tag_name: ${{ steps.meta.outputs.tag_name }}
           target_commitish: ${{ github.sha }}
+          body_path: .github/RELEASE_NOTES.md
           draft: false
           prerelease: false
           make_latest: true
-          generate_release_notes: true
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

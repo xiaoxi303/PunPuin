@@ -19,7 +19,7 @@ const defaultSetting: setting = {
             key: isMac ? "Control+Command+V" : "Alt+V",
         },
         截屏搜索: {
-            key: isMac ? "Control+Command+C" : "Alt+C",
+            key: "F1",
         },
         选中搜索: {},
         剪贴板搜索: {},

@@ -6053,10 +6053,7 @@ function jumpToPage(pageIndex: number) {
 }
 
 function buildDashboardHero() {
-    const clipKey = formatShortcutBadge(
-        getSet("快捷键.截屏搜索")?.key ||
-            (isMac ? "Control+Command+C" : "Alt+C"),
-    );
+    const clipKey = formatShortcutBadge(getSet("快捷键.截屏搜索")?.key || "F1");
     const quickKey = formatShortcutBadge(getSet("快捷键.快速截屏")?.key);
     const dingKey = formatShortcutBadge(getSet("快捷键.剪贴板贴图")?.key);
     const isDirectML = getSet("AI.运行后端") === "directml";
@@ -6776,7 +6773,7 @@ const sideBar = view("y")
 const navGlassPill = view().class("lg-nav-pill").addInto(sideBar);
 
 const clipShortcutBadge = formatShortcutBadge(
-    getSet("快捷键.截屏搜索")?.key || (isMac ? "Control+Command+C" : "Alt+C"),
+    getSet("快捷键.截屏搜索")?.key || "F1",
 );
 const brandHeader = view("y")
     .class("lg-brand-card")
