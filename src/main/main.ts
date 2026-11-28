@@ -1370,7 +1370,7 @@ function feedbackUrl(op?: {
     expected?: string;
     more?: string;
 }) {
-    const url = new URL("https://github.com/xiaoxi303/PunPuin/issues/new");
+    const url = new URL("https://github.com/Kian0-cell/PunPuin/issues/new");
     url.searchParams.append("title", op?.title || "...存在...的错误");
     url.searchParams.append(
         "body",
@@ -1386,7 +1386,7 @@ function feedbackUrl(op?: {
 }
 
 function feedbackUrl2(op?: { title?: string; main?: string }) {
-    const url = new URL("https://github.com/xiaoxi303/PunPuin/issues/new");
+    const url = new URL("https://github.com/Kian0-cell/PunPuin/issues/new");
     if (op?.title) url.searchParams.append("title", op.title);
     url.searchParams.append(
         "body",
@@ -4111,7 +4111,7 @@ async function createSettingWindow() {
 }
 
 async function createHelpWindow() {
-    shell.openExternal("https://github.com/xiaoxi303/PunPuin#readme");
+    shell.openExternal("https://github.com/Kian0-cell/PunPuin#readme");
 }
 
 const searchWindowL: { [n: number]: WebContentsView } = {};
@@ -4844,7 +4844,7 @@ async function fetchGithubReleases(): Promise<
     | { ok: true; releases: GithubReleasePayload[] }
     | { ok: false; error: string }
 > {
-    const urls = getGithubApiEndpoints("repos/xiaoxi303/PunPuin/releases");
+    const urls = getGithubApiEndpoints("repos/Kian0-cell/PunPuin/releases");
     let lastError = "未知网络错误";
     for (const url of urls) {
         try {
@@ -4922,7 +4922,7 @@ async function checkUpdate(s手动检查?: boolean) {
 function showVersion(arg?: { v: string; url: string } | "err") {
     let title = "";
     let b = "";
-    let url = "https://github.com/xiaoxi303/PunPuin/releases";
+    let url = "https://github.com/Kian0-cell/PunPuin/releases";
     if (arg) {
         if (arg === "err") {
             title = t("无法检查更新");

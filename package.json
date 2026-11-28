@@ -23,13 +23,13 @@
         "fix": "biome check --write ."
     },
     "author": {
-        "name": "xiaoxi303",
-        "url": "https://github.com/xiaoxi303/PunPuin"
+        "name": "Kian0-cell",
+        "url": "https://github.com/Kian0-cell/PunPuin"
     },
-    "homepage": "https://github.com/xiaoxi303/PunPuin",
+    "homepage": "https://github.com/Kian0-cell/PunPuin",
     "repository": {
         "type": "git",
-        "url": "git@github.com:xiaoxi303/PunPuin.git"
+        "url": "git@github.com:Kian0-cell/PunPuin.git"
     },
     "license": "GPL-3.0",
     "packageManager": "pnpm@10.17.0",

@@ -6,12 +6,12 @@
 
 **跨平台一体化截图工具 · 显卡加速离线 OCR · 无框原地翻译 · 现代标注美化 · 贴图 · GIF 录屏**
 
-[![Version](https://img.shields.io/badge/version-v0.2.2%20正式版-2563EB?style=flat-square)](https://github.com/xiaoxi303/PunPuin/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20macOS%20(Apple%20Silicon%20%26%20Intel)-0EA5E9?style=flat-square)](https://github.com/xiaoxi303/PunPuin/releases/latest)
-[![Packages](https://img.shields.io/badge/GitHub%20Packages-ghcr.io%2Fxiaoxi303%2Fpunpuin-8B5CF6?style=flat-square)](https://github.com/xiaoxi303/PunPuin/pkgs/container/punpuin)
+[![Version](https://img.shields.io/badge/version-v0.2.2%20正式版-2563EB?style=flat-square)](https://github.com/Kian0-cell/PunPuin/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20macOS%20(Apple%20Silicon%20%26%20Intel)-0EA5E9?style=flat-square)](https://github.com/Kian0-cell/PunPuin/releases/latest)
+[![Packages](https://img.shields.io/badge/GitHub%20Packages-ghcr.io%2Fkian0--cell%2Fpunpuin-8B5CF6?style=flat-square)](https://github.com/Kian0-cell/PunPuin/pkgs/container/punpuin)
 [![License](https://img.shields.io/badge/license-GPL--3.0-10B981?style=flat-square)](LICENSE)
 
-[下载正式版](https://github.com/xiaoxi303/PunPuin/releases/latest) · [GitHub 软件包](https://github.com/xiaoxi303/PunPuin/pkgs/container/punpuin) · [问题反馈](https://github.com/xiaoxi303/PunPuin/issues)
+[下载正式版](https://github.com/Kian0-cell/PunPuin/releases/latest) · [GitHub 软件包](https://github.com/Kian0-cell/PunPuin/pkgs/container/punpuin) · [问题反馈](https://github.com/Kian0-cell/PunPuin/issues)
 
 > 本项目基于开源项目 [xushengfeng/eSearch](https://github.com/xushengfeng/eSearch)（GPL-3.0）深度重构与二次开发。
 
@@ -56,7 +56,7 @@
 
 ## 下载与安装说明
 
-前往 [**Releases 最新正式版**](https://github.com/xiaoxi303/PunPuin/releases/latest) 下载对应系统安装包：
+前往 [**Releases 最新正式版**](https://github.com/Kian0-cell/PunPuin/releases/latest) 下载对应系统安装包：
 
 | 系统与芯片 | 推荐下载文件 | 说明 |
 | :--- | :--- | :--- |
@@ -75,7 +75,7 @@
 
 ## 自动化打包与本地开发
 
-仓库已配置 [GitHub Actions 自动构建发布流水线](.github/workflows/build.yml)：每次推送到 `main` 分支（或手动触发）均会自动构建 Windows `.exe` 与 macOS `arm64`/`x64` 安装包，并同步发布至 **GitHub Releases（发行版）** 与 **GitHub Packages（软件包 `ghcr.io/xiaoxi303/punpuin`）**。
+仓库已配置 [GitHub Actions 自动构建发布流水线](.github/workflows/build.yml)：每次推送到 `main` 分支（或手动触发）均会自动构建 Windows `.exe` 与 macOS `arm64`/`x64` 安装包，并同步发布至 **GitHub Releases（发行版）** 与 **GitHub Packages（软件包 `ghcr.io/kian0-cell/punpuin`）**。
 
 ```bash
 # 安装依赖（Node.js >= 22，pnpm 10）
