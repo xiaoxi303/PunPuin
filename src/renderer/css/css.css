@@ -419,6 +419,377 @@ select {
     padding: 0;
 }
 
+/* 以图搜图工作台（Image Search Studio） */
+#img_search_studio {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 16px 16px;
+    background:
+        radial-gradient(
+            circle at 12% 10%,
+            color-mix(in srgb, var(--emphasis-color) 11%, transparent),
+            transparent 48%
+        ),
+        var(--bg);
+    overflow: auto;
+    animation: punPageFadeIn 0.24s var(--ease-out-expo);
+}
+
+.ims_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.ims_title {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--font-color);
+}
+
+.ims_subtitle {
+    font-size: 12px;
+    color: var(--font-color-l);
+}
+
+.ims_head_btn {
+    height: 34px !important;
+    padding-inline: 13px !important;
+    border-radius: 10px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    font-size: 12.5px !important;
+}
+
+.ims_head_btn > .icon {
+    width: 14px;
+    height: 14px;
+    filter: brightness(0) invert(1) !important;
+}
+
+.ims_icon_btn {
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 10px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.ims_body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 14px;
+    align-items: stretch;
+}
+
+@media (max-width: 720px) {
+    .ims_body {
+        flex-direction: column;
+    }
+    .ims_preview_card {
+        width: 100% !important;
+    }
+}
+
+.ims_preview_card {
+    width: 270px;
+    flex-shrink: 0;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ims_preview_stage {
+    position: relative;
+    flex: 1;
+    min-height: 170px;
+    max-height: 340px;
+    border-radius: 11px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--surface-2);
+    background-image:
+        linear-gradient(
+            45deg,
+            color-mix(in srgb, var(--font-color) 5%, transparent) 25%,
+            transparent 25%
+        ),
+        linear-gradient(
+            -45deg,
+            color-mix(in srgb, var(--font-color) 5%, transparent) 25%,
+            transparent 25%
+        ),
+        linear-gradient(
+            45deg,
+            transparent 75%,
+            color-mix(in srgb, var(--font-color) 5%, transparent) 75%
+        ),
+        linear-gradient(
+            -45deg,
+            transparent 75%,
+            color-mix(in srgb, var(--font-color) 5%, transparent) 75%
+        );
+    background-size: 16px 16px;
+    background-position:
+        0 0,
+        0 8px,
+        8px -8px,
+        -8px 0;
+    border: 1px solid var(--border-subtle);
+    transition:
+        border-color var(--transition),
+        box-shadow var(--transition);
+}
+
+.ims_preview_stage.drag-over {
+    border-color: var(--emphasis-color);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.ims_preview_img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+@keyframes imsScanBeam {
+    0% {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    15% {
+        opacity: 1;
+    }
+    85% {
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+}
+
+.ims_scan_beam {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: none;
+}
+
+.ims_preview_stage.scanning .ims_scan_beam {
+    display: block;
+}
+
+.ims_scan_beam::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 45%;
+    background: linear-gradient(
+        180deg,
+        transparent 0%,
+        color-mix(in srgb, var(--emphasis-color) 18%, transparent) 70%,
+        color-mix(in srgb, var(--emphasis-color) 65%, #38bdf8) 98%,
+        transparent 100%
+    );
+    animation: imsScanBeam 1.25s var(--ease-out-expo) infinite;
+}
+
+.ims_preview_actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.ims_action_btn {
+    flex: 1 1 auto;
+    height: 32px !important;
+    padding-inline: 10px !important;
+    border-radius: 9px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 5px !important;
+}
+
+.ims_action_btn > .icon {
+    width: 14px;
+    height: 14px;
+}
+
+.ims_right_col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ims_status_banner {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition:
+        border-color var(--transition),
+        box-shadow var(--transition);
+}
+
+.ims_status_banner[data-tone="loading"] {
+    border-color: color-mix(in srgb, var(--emphasis-color) 36%, transparent);
+}
+
+.ims_status_banner[data-tone="success"] {
+    border-color: color-mix(in srgb, var(--success) 38%, transparent);
+}
+
+.ims_status_banner[data-tone="error"] {
+    border-color: color-mix(in srgb, var(--danger) 42%, transparent);
+}
+
+.ims_status_dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--emphasis-color);
+    box-shadow: 0 0 8px var(--accent-glow);
+    flex-shrink: 0;
+}
+
+.ims_status_banner[data-tone="success"] .ims_status_dot {
+    background: var(--success);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.ims_status_banner[data-tone="error"] .ims_status_dot {
+    background: var(--danger);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
+.ims_status_title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--font-color);
+}
+
+.ims_status_detail {
+    font-size: 12px;
+    color: var(--font-color-l);
+    line-height: 1.45;
+}
+
+.ims_mini_btn {
+    height: 28px !important;
+    padding-inline: 10px !important;
+    border-radius: 8px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+}
+
+.ims_engine_grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(205px, 1fr));
+    gap: 10px;
+}
+
+.ims_engine_card {
+    width: 100% !important;
+    height: auto !important;
+    padding: 12px 13px !important;
+    border-radius: 13px !important;
+    background-color: var(--surface) !important;
+    border: 1px solid var(--border-subtle) !important;
+    outline: none !important;
+    box-shadow: var(--shadow-sm);
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+    text-align: left !important;
+    cursor: pointer;
+    transition:
+        transform var(--transition),
+        border-color var(--transition),
+        box-shadow var(--transition),
+        background-color var(--transition) !important;
+}
+
+.ims_engine_card:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(
+        in srgb,
+        var(--emphasis-color) 42%,
+        transparent
+    ) !important;
+    box-shadow: var(--shadow);
+}
+
+.ims_engine_card.active {
+    border-color: var(--emphasis-color) !important;
+    box-shadow:
+        var(--shadow),
+        0 0 0 2px var(--accent-soft);
+}
+
+.ims_engine_card.done .ims_engine_status {
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success);
+}
+
+.ims_engine_card.error .ims_engine_status {
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
+}
+
+.ims_engine_dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.ims_engine_name {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--font-color);
+}
+
+.ims_engine_status {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--font-color-l);
+    font-family: var(--monospace);
+    white-space: nowrap;
+}
+
+.ims_engine_desc {
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--font-color-l);
+    white-space: normal;
+}
+
 .b_tab > button > .icon {
     width: 20px;
 }

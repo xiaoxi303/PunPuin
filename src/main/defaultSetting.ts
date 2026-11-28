@@ -325,7 +325,7 @@ const defaultSetting: setting = {
         },
     },
     以图搜图: {
-        引擎: "baidu",
+        引擎: "bing",
     },
     自动打开链接: false,
     自动搜索中文占比: 0.2,

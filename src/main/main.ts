@@ -41,6 +41,7 @@ import {
     Notification,
     nativeImage,
     nativeTheme,
+    net,
     screen,
     session,
     shell,
@@ -51,6 +52,7 @@ import {
 import minimist from "minimist";
 import main from "xtranslator";
 import { githubMirrorList } from "../../lib/github_mirror";
+import { runReverseImageSearch } from "../../lib/imageSearch";
 import type {
     NativeMonitorRect,
     NativeWinRect,
@@ -509,7 +511,15 @@ async function argRun(c: string[], first?: boolean) {
         .get("离线OCR")
         .map((i) => `${i.id}(${i.name})`)
         .concat(["baidu", "youdao"]);
-    const searchE = ["baidu, yandex, google"];
+    const searchE = [
+        "bing",
+        "baidu",
+        "google",
+        "yandex",
+        "so360",
+        "saucenao",
+        "ai",
+    ];
 
     function getEngine(e: string | undefined, list: string[], df: string) {
         if (!e) return df;
@@ -855,6 +865,56 @@ app.whenReady().then(() => {
             },
         });
         return new Uint8Array(bytes);
+    });
+
+    mainHandle("reverseImageSearch", async ([req]) => {
+        return runReverseImageSearch(req, {
+            fetchImpl: (input, init) => net.fetch(input, init),
+            optimizeImage: (raw, mime) => {
+                try {
+                    const img = nativeImage.createFromBuffer(raw);
+                    if (img.isEmpty()) {
+                        return {
+                            buffer: raw,
+                            mime,
+                            ext: mime.includes("jpeg") ? "jpg" : "png",
+                        };
+                    }
+                    const { width, height } = img.getSize();
+                    const maxSide = 1600;
+                    let target = img;
+                    if (width > maxSide || height > maxSide) {
+                        const scale = maxSide / Math.max(width, height);
+                        target = img.resize({
+                            width: Math.max(1, Math.round(width * scale)),
+                            height: Math.max(1, Math.round(height * scale)),
+                            quality: "good",
+                        });
+                    }
+                    if (raw.length > 320 * 1024 || target !== img) {
+                        const jpg = target.toJPEG(88);
+                        if (jpg.length > 0 && jpg.length < raw.length) {
+                            return {
+                                buffer: jpg,
+                                mime: "image/jpeg",
+                                ext: "jpg",
+                            };
+                        }
+                    }
+                    return {
+                        buffer: raw,
+                        mime,
+                        ext: mime.includes("jpeg") ? "jpg" : "png",
+                    };
+                } catch {
+                    return {
+                        buffer: raw,
+                        mime,
+                        ext: mime.includes("jpeg") ? "jpg" : "png",
+                    };
+                }
+            },
+        });
     });
 
     fixSettingTree();
@@ -3976,12 +4036,6 @@ async function createMainWindow(op: MainWinType) {
         mainWindow.webContents.setZoomFactor(store.get("全局.缩放") || 1.0);
         // 确保切换到index时能传递window_name
         mainSend(mainWindow.webContents, "editorInit", [windowName, op]);
-
-        if (op.type === "image" && op.arg0 === "ai") {
-            createBrowser(windowName, "./aiVision.html").then((c) => {
-                c?.executeJavaScript(`setImg("${op.content}")`);
-            });
-        }
     });
     mainWindow.webContents.on("console-message", (d) => {
         if (d.level !== "debug")
@@ -4053,6 +4107,9 @@ async function createHelpWindow() {
 }
 
 const searchWindowL: { [n: number]: WebContentsView } = {};
+let browserViewSeq = 1;
+const BROWSER_VIEW_UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const browserViewWcIds = new Set<number>();
 const clipboardPermissions = new Set([
     "clipboard-sanitized-write",
@@ -4073,6 +4130,57 @@ mainOn("open_this_browser", ([window_name, url]) => {
     createBrowser(window_name, url);
 });
 
+mainOn("openImageSearchTab", async ([data]) => {
+    if (data.engine === "ai" && data.imageDataUrl) {
+        const wc = await createBrowser(data.windowName, "./aiVision.html");
+        if (wc && !wc.isDestroyed()) {
+            void wc
+                .executeJavaScript(
+                    `window.setImg && window.setImg(${JSON.stringify(data.imageDataUrl)})`,
+                )
+                .catch(() => {});
+        }
+        return;
+    }
+    const wc = await createBrowser(data.windowName, data.url);
+    if (!wc || wc.isDestroyed() || !data.browserUpload || !data.imageDataUrl) {
+        return;
+    }
+    const { fileInputSelector, mimeType, fileName } = data.browserUpload;
+    const base64 = data.imageDataUrl.replace(
+        /^data:image\/[\w.+-]+;base64,/i,
+        "",
+    );
+    const injectScript = `(() => {
+        const b64 = ${JSON.stringify(base64)};
+        const mime = ${JSON.stringify(mimeType)};
+        const name = ${JSON.stringify(fileName)};
+        const sel = ${JSON.stringify(fileInputSelector)};
+        function tryInject() {
+            const input = document.querySelector(sel);
+            if (!input) return false;
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const file = new File([bytes], name, { type: mime });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            return true;
+        }
+        if (tryInject()) return true;
+        let tries = 0;
+        const timer = setInterval(() => {
+            tries++;
+            if (tryInject() || tries >= 24) clearInterval(timer);
+        }, 250);
+        return false;
+    })()`;
+    void wc.executeJavaScript(injectScript).catch(() => {});
+});
+
 /** 创建浏览器页面 */
 async function createBrowser(windowName: number, url: string) {
     console.log(url);
@@ -4080,11 +4188,11 @@ async function createBrowser(windowName: number, url: string) {
     if (!windowName)
         windowName = await createMainWindow({ type: "text", content: "" });
 
-    const mainWindow = mainWindowL[windowName].win;
+    const mainWindow = mainWindowL[windowName]?.win;
 
-    if (mainWindow.isDestroyed()) return null;
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
     minViews(mainWindow);
-    const view = Date.now();
+    const view = Date.now() * 100 + (++browserViewSeq % 100);
     let webPreferences: Electron.WebPreferences = {};
     if (url.startsWith("translate") || url === "./aiVision.html") {
         webPreferences = {
@@ -4106,7 +4214,10 @@ async function createBrowser(windowName: number, url: string) {
         });
     } else if (url === "./aiVision.html") {
         rendererPath2(searchView.webContents, "aiVision.html", {});
-    } else searchView.webContents.loadURL(url);
+    } else {
+        searchView.webContents.setUserAgent(BROWSER_VIEW_UA);
+        searchView.webContents.loadURL(url);
+    }
     const bSize = mainWindowL[windowName].browser;
     setViewSize(searchView, mainWindow, bSize);
     searchView.webContents.setWindowOpenHandler(({ url }) => {
@@ -4146,16 +4257,20 @@ async function createBrowser(windowName: number, url: string) {
         if (!mainWindow.isDestroyed())
             mainSend(mainWindow.webContents, "browserLoad", [view, false]);
     });
-    searchView.webContents.on("did-fail-load", (_event, err_code, err_des) => {
-        rendererPath2(searchView.webContents, "browser_bg.html", {
-            query: {
-                type: "did-fail-load",
-                err_code: String(err_code),
-                err_des,
-            },
-        });
-        if (dev) searchView.webContents.openDevTools();
-    });
+    searchView.webContents.on(
+        "did-fail-load",
+        (_event, err_code, err_des, _validatedURL, isMainFrame) => {
+            if (err_code === -3 || !isMainFrame) return;
+            rendererPath2(searchView.webContents, "browser_bg.html", {
+                query: {
+                    type: "did-fail-load",
+                    err_code: String(err_code),
+                    err_des,
+                },
+            });
+            if (dev) searchView.webContents.openDevTools();
+        },
+    );
     searchView.webContents.on("render-process-gone", () => {
         rendererPath2(searchView.webContents, "browser_bg.html", {
             query: { type: "render-process-gone" },

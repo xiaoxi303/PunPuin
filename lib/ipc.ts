@@ -23,6 +23,11 @@ import type {
     translateWinType,
     功能,
 } from "../src/ShareTypes";
+import type {
+    ImageSearchBrowserUpload,
+    ImageSearchRequest,
+    ImageSearchResult,
+} from "./imageSearch";
 
 type Equals<X, Y> =
     (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
@@ -368,6 +373,14 @@ type Message = {
         type: "info" | "warning" | "error";
         lineCount: number;
     }[];
+    reverseImageSearch: (req: ImageSearchRequest) => ImageSearchResult;
+    openImageSearchTab: (data: {
+        windowName: number;
+        url: string;
+        engine: string;
+        imageDataUrl?: string;
+        browserUpload?: ImageSearchBrowserUpload;
+    }) => void;
 };
 
 const name = "ipc";

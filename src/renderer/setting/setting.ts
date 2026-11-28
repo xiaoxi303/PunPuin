@@ -27,6 +27,7 @@ import {
     txt,
     view,
 } from "dkh-ui";
+import { IMAGE_SEARCH_ENGINES } from "../../../lib/imageSearch";
 import type { GetValue, SettingPath } from "../../../lib/store/renderStore";
 import store from "../../../lib/store/renderStore";
 import { getLanName, getLans, lan, t } from "../../../lib/translate/translate";
@@ -1270,6 +1271,18 @@ const s: Partial<settingItem<SettingPath>> = {
         name: "自动搜索中文占比",
         desc: "在中英混合中，数值越小，则整段文字越容易被程序认为是中文主要", // todo 用语言库 区分母语
         el: () => xNumber("", { min: 0.002, max: 1, step: 0.01 }),
+    },
+    "以图搜图.引擎": {
+        name: "以图搜图默认引擎",
+        desc: "截屏点击「以图搜图」时默认使用的识图引擎（必应识图与 Yandex 支持直连高速检索，百度识图自动表单提交）",
+        el: () =>
+            xSelect(
+                IMAGE_SEARCH_ENGINES.map((item) => ({
+                    value: item.id,
+                    name: item.name,
+                })),
+                "以图搜图默认引擎",
+            ),
     },
     "引擎.搜索": {
         name: "搜索引擎",
@@ -2598,7 +2611,10 @@ const main: {
                 title: "自动",
                 settings: ["自动搜索", "自动打开链接", "自动搜索中文占比"],
             },
-            { title: "引擎", settings: ["引擎.搜索", "引擎.翻译"] },
+            {
+                title: "引擎",
+                settings: ["以图搜图.引擎", "引擎.搜索", "引擎.翻译"],
+            },
             {
                 title: "浏览",
                 settings: [

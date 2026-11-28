@@ -43,6 +43,7 @@ const path = require("node:path") as typeof import("path");
 
 import type { FSWatcher } from "node:fs";
 import xhistory from "../lib/history";
+import { createImageSearchStudio } from "./imageSearchPanel";
 
 initStyle(store);
 const isMac = process.platform === "darwin";
@@ -281,9 +282,27 @@ findEl.add([
 
 // main ui
 const mainSectionEl = view()
-    .style({ overflow: "hidden" })
+    .style({ overflow: "hidden", position: "relative" })
     .attr({ id: "edit" })
     .addInto(outMainEl);
+
+const imageSearchStudio = createImageSearchStudio(mainSectionEl, {
+    getWindowName: () => windowName,
+    openInExternalBrowser: () => 浏览器打开,
+    onOpenUrl: (url) => openLink(url),
+    onRunOcr: (imageDataUrl) => {
+        editor.push(`${t("文字识别中……")} ${t("请等候")}`);
+        ocr(imageDataUrl, store.get("OCR.类型"), (_err, r) => {
+            if (r?.text) {
+                editor.push(r.text);
+                stackAdd();
+            }
+        });
+    },
+    onCloseStudio: () => {
+        setTitle(t("主页面"));
+    },
+});
 
 // image ui
 const ocrImagePel = view("y")
@@ -1881,21 +1900,8 @@ renderOn("editorInit", ([name, list]) => {
     }
 
     if (list.type === "image" && list.arg0) {
-        editor.push(`${t("图片上传中……")} ${t("请等候")}`);
-        searchImg(list.content, list.arg0, (err, url) => {
-            if (url) {
-                editor.push("");
-                openLink(url);
-                if (浏览器打开) {
-                    // 主页面作为临时上传图片的工具，应自动关闭，不管有没有设置自动关闭标签
-                    closeWindow();
-                }
-            }
-            if (err)
-                editor.push(
-                    `${t("上传错误")}\n${t("请打开开发者工具（Ctrl+Shift+I）查看详细错误")}`,
-                );
-        });
+        setTitle(t("以图搜图"));
+        void imageSearchStudio.startSearch(list.content, list.arg0, true);
     }
 
     if (list.type === "ocr" && list.arg0) {
@@ -2385,139 +2391,6 @@ browserTabs.el.onwheel = (e) => {
     browserTabs.el.scrollLeft +=
         i * Math.sqrt(e.deltaX ** 2 + e.deltaY ** 2 + e.deltaZ ** 2);
 };
-
-/************************************以图搜图 */
-
-function searchImg(
-    simg: string,
-    type: "baidu" | "yandex" | "google" | (string & {}),
-    callback: (err: Error | null, url: string | null) => void,
-) {
-    const img = simg.replace(/^data:image\/\w+;base64,/, "");
-    switch (type) {
-        case "baidu":
-            baidu(img, (err, url) => {
-                callback(err, url);
-            });
-            break;
-        case "yandex":
-            yandex(img, (err, url) => {
-                callback(err, url);
-            });
-            break;
-        case "google":
-            google(img, (err, url) => {
-                callback(err, url);
-            });
-    }
-}
-
-/**
- * @param url
- * @param options
- * @param cb 回调
- */
-function post(
-    url: string,
-    options: RequestInit,
-    // @ts-expect-error
-    cb: (err: Error | null, result) => void,
-) {
-    fetch(url, Object.assign(options, { method: "POST" }))
-        .then((r) => {
-            console.log(r);
-            return r.json();
-        })
-        .then((r) => {
-            console.log(r);
-            cb(null, r);
-        })
-        .catch((e) => {
-            console.error(e);
-            cb(e, null);
-        });
-}
-
-function baidu(
-    image: string,
-    callback: (err: Error | null, url: string | null) => void,
-) {
-    const form = new FormData();
-    const bstr = window.atob(image);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) {
-        u8arr[n] = bstr.charCodeAt(n);
-    }
-    form.append("image", new Blob([u8arr], { type: "image/png" }), "blob");
-    post("https://graph.baidu.com/upload", { body: form }, (err, result) => {
-        if (err) {
-            callback(err, null);
-            return;
-        }
-        if (result.msg !== "Success") {
-            callback(new Error(JSON.stringify(err)), null);
-            return;
-        }
-        console.log(result.data.url);
-        callback(null, result.data.url);
-    });
-}
-
-function yandex(
-    image: string,
-    callback: (err: Error | null, url: string | null) => void,
-) {
-    const b = Buffer.from(image, "base64");
-    const url =
-        "https://yandex.com/images-apphost/image-download?cbird=111&images_avatars_size=preview&images_avatars_namespace=images-cbir";
-    post(url, { body: b }, (err, result: { url: string }) => {
-        if (err) return callback(err, null);
-        console.log(result);
-        const img_url = result.url;
-        if (img_url) {
-            const b_url = `https://yandex.com/images/search?family=yes&rpt=imageview&url=${encodeURIComponent(
-                img_url,
-            )}`;
-            callback(null, b_url);
-        } else {
-            callback(new Error(JSON.stringify(result)), null);
-        }
-    });
-}
-
-function google(
-    image: string,
-    callback: (err: Error | null, url: string | null) => void,
-) {
-    const form = new FormData();
-    const bstr = window.atob(image);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) {
-        u8arr[n] = bstr.charCodeAt(n);
-    }
-    form.append(
-        "encoded_image",
-        new Blob([u8arr], { type: "image/png" }),
-        "eSearch.png",
-    );
-    form.append("image_content", "");
-    const url = `https://lens.google.com/v3/upload?hl=zh-CN&re=df&st=${Date.now()}&vpw=1041&vph=779`;
-    fetch(url, {
-        method: "POST",
-        body: form,
-    })
-        .then(async (r) => {
-            const text = await r.text();
-            const tmp = path.join(os.tmpdir(), "eSearch", "google.html");
-            fs.writeFileSync(tmp, text);
-            callback(null, `file://${tmp}`);
-        })
-        .catch((err) => {
-            if (err) callback(err, null);
-        });
-}
 
 /************************************OCR */
 

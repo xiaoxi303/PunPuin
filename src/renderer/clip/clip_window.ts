@@ -25,6 +25,7 @@ import {
 } from "fabric";
 import hotkeys from "hotkeys-js";
 import { findOffset } from "picture_match";
+import { IMAGE_SEARCH_ENGINES } from "../../../lib/imageSearch";
 import { ele2jsKeyCode, jsKeyCodeDisplay } from "../../../lib/key";
 import {
     type LongFrame,
@@ -5164,12 +5165,14 @@ const toolsX: Record<功能, { el: ElType<HTMLElement>; f: () => void }> = {
         f: () => runOcr(),
     },
     search: {
-        el: selectEl(iconEl("search"), t("以图搜图"), [
-            { value: "baidu", name: t("百度") },
-            { value: "yandex", name: "Yandex" },
-            { value: "google", name: "Google" },
-            { value: "ai", name: "AI" },
-        ]),
+        el: selectEl(
+            iconEl("search"),
+            t("以图搜图"),
+            IMAGE_SEARCH_ENGINES.map((item) => ({
+                value: item.id,
+                name: t(item.name),
+            })),
+        ),
         f: () => runSearch(),
     },
     QR: { el: iconEl("scan").attr({ title: "二维码" }), f: () => runQr() },

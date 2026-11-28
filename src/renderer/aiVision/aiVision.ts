@@ -17,7 +17,14 @@ import { t } from "../../../lib/translate/translate";
 import type { IconType } from "../../iconTypes";
 import { type aiData, runAI } from "../lib/ai";
 import { writeText } from "../lib/clipboard";
-import { Class, cssColor, cssVar, getImgUrl, initStyle } from "../root/root";
+import {
+    Class,
+    cssColor,
+    cssVar,
+    getImgUrl,
+    initStyle,
+    showToast,
+} from "../root/root";
 
 initStyle(store);
 
@@ -148,6 +155,7 @@ function newChatItem(id: string) {
         if (!cur) return;
         await writeText(cur);
         copyMsgBtn.attr({ title: t("已复制") });
+        showToast(t("已复制"), "success");
     });
     toolBar.els.delete.on("click", () => {
         content.delete(id);
@@ -331,6 +339,7 @@ addStyle({
         display: "flex",
         "flex-direction": "column",
         gap: "4px",
+        animation: "punCardIn 0.22s var(--ease-out-expo)",
     },
     ".chat-bubble": {
         padding: "10px 14px",
