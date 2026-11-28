@@ -3044,6 +3044,14 @@ mainOn("setting_quick_action", ([action]) => {
         void dingFromClipBoard();
     } else if (action === "main_window") {
         void createMainWindow({ type: "text", content: "" });
+    } else if (action === "super_record") {
+        void hideSettingForClip(() => createSuperRecorderWindow());
+    } else if (action === "image_search") {
+        void createMainWindow({
+            type: "image",
+            content: "",
+            arg0: store.get("以图搜图.引擎"),
+        });
     }
 });
 mainOn("reloadMainFromSetting", () => {

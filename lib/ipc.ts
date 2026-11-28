@@ -190,7 +190,13 @@ type Message = {
     reloadMainFromSetting: () => void;
     setting_start_clip: () => void;
     setting_quick_action: (
-        action: "clip" | "quick_clip" | "ding_clipboard" | "main_window",
+        action:
+            | "clip"
+            | "quick_clip"
+            | "ding_clipboard"
+            | "main_window"
+            | "super_record"
+            | "image_search",
     ) => void;
     github_download_asset: (data: {
         id: string;

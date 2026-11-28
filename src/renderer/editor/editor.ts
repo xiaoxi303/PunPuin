@@ -167,12 +167,18 @@ const editOnOtherEl = buttonSwitch(
 ).on("contextmenu", () => {
     writeText(tmpTextPath);
 });
-nav.add([editOnOtherEl]);
+const openImgStudioBtn = iconBEl("search", "以图搜图工作台").on("click", () => {
+    setTitle(t("以图搜图"));
+    imageSearchStudio.openEmpty(store.get("以图搜图.引擎"));
+});
+nav.add([editOnOtherEl, openImgStudioBtn]);
 
-const ziCount = view().style({
+const ziCount = view().class("pun-pill").style({
     // @ts-ignore
     "-webkit-app-region": "no-drag",
-    color: cssColor.font.light,
+    fontFamily: "var(--monospace)",
+    fontSize: "11px",
+    alignSelf: "center",
 });
 nav.add([spacer(), ziCount]);
 
@@ -189,7 +195,7 @@ const outMainEl = view()
         padding: cssVar("o-padding"),
         boxSizing: "border-box",
     })
-    .class("fill_t")
+    .class("fill_t", "pun-aurora-canvas")
     .class(Class.gap)
     .addInto();
 
@@ -1899,9 +1905,13 @@ renderOn("editorInit", ([name, list]) => {
         showT(mainText, mainType);
     }
 
-    if (list.type === "image" && list.arg0) {
+    if (list.type === "image") {
         setTitle(t("以图搜图"));
-        void imageSearchStudio.startSearch(list.content, list.arg0, true);
+        if (list.content) {
+            void imageSearchStudio.startSearch(list.content, list.arg0, true);
+        } else {
+            imageSearchStudio.openEmpty(list.arg0);
+        }
     }
 
     if (list.type === "ocr" && list.arg0) {

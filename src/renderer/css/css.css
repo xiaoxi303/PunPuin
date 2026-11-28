@@ -25,19 +25,41 @@ nav {
 }
 
 nav > button {
-    border-radius: var(--border-radius);
+    border-radius: 9px;
     height: var(--title-bar) !important;
     width: var(--title-bar) !important;
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     -webkit-app-region: no-drag;
+    background-color: var(--surface-glass);
+    border: 1px solid var(--border-subtle);
+    outline: none !important;
+    transition:
+        background-color var(--transition),
+        border-color var(--transition),
+        transform var(--transition),
+        box-shadow var(--transition);
+}
+nav > button:hover {
+    background-color: var(--hover-color);
+    border-color: color-mix(in srgb, var(--emphasis-color) 35%, transparent);
+    transform: translateY(-1px);
 }
 nav > button > .icon {
-    height: var(--title-bar);
-    width: var(--title-bar);
+    height: calc(var(--title-bar) * 0.62);
+    width: calc(var(--title-bar) * 0.62);
 }
 
 body .hover_b {
-    background-color: var(--hover-color);
+    background-color: var(--accent-soft) !important;
+    border-color: color-mix(
+        in srgb,
+        var(--emphasis-color) 36%,
+        transparent
+    ) !important;
+    box-shadow: 0 2px 8px
+        color-mix(in srgb, var(--emphasis-color) 16%, transparent);
 }
 
 #edit {
@@ -75,14 +97,17 @@ body .hover_b {
         background-color var(--transition);
     display: flex;
     flex: 1;
-    border-radius: 14px;
+    border-radius: 16px;
     border: 1px solid var(--border-subtle);
-    background: var(--surface);
-    box-shadow: var(--shadow-sm);
-    padding: 10px 6px;
+    background: var(--surface-glass);
+    backdrop-filter: blur(16px) saturate(160%);
+    box-shadow:
+        var(--shadow-sm),
+        inset 0 1px 0 var(--glass-highlight);
+    padding: 12px 8px;
     cursor: text;
     font-size: 1em;
-    line-height: 1.5em;
+    line-height: 1.55em;
     position: relative;
     height: 100%;
     overflow: hidden;
@@ -296,8 +321,17 @@ body .hover_b {
 
 #bottoms {
     display: flex;
-    gap: var(--o-padding);
-    height: 32px;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 4px 6px;
+    border-radius: 14px;
+    background: var(--surface-glass);
+    backdrop-filter: blur(20px) saturate(175%);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+        var(--shadow),
+        inset 0 1px 0 var(--glass-highlight);
     transition: var(--transition);
 }
 
@@ -374,8 +408,14 @@ select {
 }
 .tab_focus {
     background-color: var(--surface);
-    border-color: var(--border-subtle);
-    box-shadow: var(--shadow-sm);
+    border-color: color-mix(
+        in srgb,
+        var(--emphasis-color) 32%,
+        var(--border-subtle)
+    );
+    box-shadow:
+        var(--shadow-sm),
+        inset 0 -2px 0 var(--emphasis-color);
 }
 .tab_small {
     max-width: 32px !important;
@@ -552,6 +592,44 @@ select {
     transition:
         border-color var(--transition),
         box-shadow var(--transition);
+}
+
+.ims_preview_stage.empty {
+    cursor: pointer;
+    border: 1.5px dashed
+        color-mix(in srgb, var(--emphasis-color) 42%, var(--border-color));
+    background-image: radial-gradient(
+        circle at 50% 35%,
+        color-mix(in srgb, var(--emphasis-color) 11%, transparent),
+        transparent 72%
+    );
+}
+.ims_preview_stage.empty:hover {
+    border-color: var(--emphasis-color);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.ims_empty_prompt {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 18px;
+}
+.ims_empty_icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--emphasis-color) 28%, transparent);
+    box-shadow: 0 4px 14px var(--accent-glow);
+}
+.ims_empty_icon > .icon {
+    width: 22px;
+    height: 22px;
 }
 
 .ims_preview_stage.drag-over {

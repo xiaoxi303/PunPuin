@@ -42,6 +42,7 @@ import {
     getTranslators,
 } from "../lib/translate";
 import {
+    attachSpotlight,
     Class,
     cssColor,
     cssVar,
@@ -3192,13 +3193,20 @@ const xselectClass = addClass(
 
 const settingCardClass = addClass(
     {
-        backgroundColor: "var(--surface)",
+        backgroundColor: "var(--surface-glass)",
+        backdropFilter: "blur(18px) saturate(160%)",
         border: "1px solid var(--border-subtle)",
-        borderRadius: "14px",
-        boxShadow: "var(--shadow-sm)",
+        borderRadius: "16px",
+        boxShadow: "var(--shadow-sm), inset 0 1px 0 var(--glass-highlight)",
         overflow: "hidden",
+        transition:
+            "border-color var(--transition), box-shadow var(--transition)",
     },
     {
+        "&:hover": {
+            borderColor:
+                "color-mix(in srgb, var(--font-color) 14%, transparent)",
+        },
         "& > * + *": {
             borderTop: "1px solid var(--border-subtle)",
         },
@@ -3214,7 +3222,7 @@ const settingRowClass = addClass(
     {
         "&:hover": {
             backgroundColor:
-                "color-mix(in srgb, var(--font-color) 2.5%, transparent)",
+                "color-mix(in srgb, var(--emphasis-color) 4%, transparent)",
         },
     },
 );
@@ -3237,16 +3245,18 @@ const sideNavItemClass = addClass(
         alignItems: "center",
         gap: "10px",
         width: "100%",
-        minHeight: "38px",
+        minHeight: "36px",
         height: "auto",
-        padding: "8px 12px",
-        borderRadius: "10px",
+        padding: "7px 12px",
+        borderRadius: "11px",
         cursor: "pointer",
-        fontSize: "13.5px",
+        fontSize: "13px",
         fontWeight: 500,
         whiteSpace: "nowrap",
         boxSizing: "border-box",
-        transition: "all var(--transition)",
+        border: "1px solid transparent",
+        transition:
+            "background-color var(--transition), color var(--transition), transform var(--transition), border-color var(--transition), box-shadow var(--transition)",
     },
     {
         "& .nav-icon": {
@@ -3266,11 +3276,17 @@ const sideNavItemClass = addClass(
             transform: "scale(0.98)",
         },
         "&:hover .nav-icon": {
-            opacity: 0.95,
+            opacity: 0.96,
+            transform: "scale(1.06)",
         },
         "&:has(input:checked)": {
-            backgroundColor: "var(--accent-soft)",
+            background:
+                "linear-gradient(90deg, var(--accent-soft), color-mix(in srgb, var(--emphasis-color) 6%, transparent))",
             color: "var(--emphasis-color)",
+            borderColor:
+                "color-mix(in srgb, var(--emphasis-color) 24%, transparent)",
+            boxShadow:
+                "0 2px 10px color-mix(in srgb, var(--emphasis-color) 12%, transparent)",
             fontWeight: 600,
         },
         "&:has(input:checked) .nav-icon": {
@@ -3284,7 +3300,9 @@ const sideNavItemClass = addClass(
             bottom: "7px",
             width: "3px",
             borderRadius: "999px",
-            backgroundColor: "var(--emphasis-color)",
+            background:
+                "linear-gradient(180deg, var(--emphasis-color), #06b6d4)",
+            boxShadow: "0 0 8px var(--accent-glow)",
         },
     },
 );
@@ -3292,29 +3310,19 @@ const sideNavItemClass = addClass(
 const quickClipBtnClass = addClass(
     {
         width: "100%",
-        height: "38px",
+        height: "40px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingInline: "12px",
+        paddingInline: "13px",
         gap: "8px",
-        borderRadius: "10px",
-        background:
-            "linear-gradient(135deg, var(--emphasis-color), color-mix(in srgb, var(--emphasis-color) 76%, #06b6d4))",
-        color: "var(--font-color-emphasis)",
+        borderRadius: "12px",
         fontWeight: 600,
         fontSize: "13.5px",
-        border: "none",
-        outline: "none",
-        boxShadow: "0 3px 12px var(--accent-glow)",
         cursor: "pointer",
         transition: "all var(--transition)",
     },
     {
-        "&:hover": {
-            filter: "brightness(1.06)",
-            boxShadow: "0 5px 16px var(--accent-glow)",
-        },
         "& .icon": {
             width: "16px",
             height: "16px",
@@ -3334,7 +3342,7 @@ const miniActionBtnClass = addClass(
         justifyContent: "center",
         gap: "5px",
         paddingInline: "8px",
-        borderRadius: "8px",
+        borderRadius: "9px",
         backgroundColor: "var(--surface-2)",
         outline: "1px solid var(--border-subtle)",
         border: "none",
@@ -3350,21 +3358,25 @@ const miniActionBtnClass = addClass(
         "&:hover": {
             backgroundColor: "var(--accent-soft)",
             color: "var(--emphasis-color)",
+            transform: "translateY(-1px)",
             outlineColor:
-                "color-mix(in srgb, var(--emphasis-color) 32%, transparent)",
+                "color-mix(in srgb, var(--emphasis-color) 34%, transparent)",
         },
     },
 );
 
 const heroBannerClass = addClass(
     {
-        padding: "20px 22px",
-        borderRadius: "16px",
+        position: "relative",
+        overflow: "hidden",
+        padding: "22px 22px 20px",
+        borderRadius: "20px",
         background:
-            "linear-gradient(135deg, color-mix(in srgb, var(--emphasis-color) 11%, var(--surface)), var(--surface))",
-        border: "1px solid color-mix(in srgb, var(--emphasis-color) 20%, var(--border-subtle))",
-        boxShadow: "var(--shadow-sm)",
-        marginBottom: "18px",
+            "linear-gradient(135deg, color-mix(in srgb, var(--emphasis-color) 13%, var(--surface-glass)), color-mix(in srgb, #06b6d4 7%, var(--surface-glass)) 52%, var(--surface-glass))",
+        backdropFilter: "blur(22px) saturate(180%)",
+        border: "1px solid color-mix(in srgb, var(--emphasis-color) 24%, var(--border-subtle))",
+        boxShadow: "var(--shadow), inset 0 1px 0 var(--glass-highlight)",
+        marginBottom: "20px",
         display: "flex",
         flexDirection: "column",
         gap: "16px",
@@ -3372,14 +3384,43 @@ const heroBannerClass = addClass(
     {},
 );
 
+const telemetryChipClass = addClass(
+    {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        height: "28px",
+        padding: "0 11px",
+        borderRadius: "999px",
+        fontSize: "11.5px",
+        fontWeight: 600,
+        color: "var(--font-color)",
+        backgroundColor: "var(--surface-glass)",
+        border: "1px solid var(--border-subtle)",
+        outline: "none",
+        cursor: "pointer",
+        transition: "all var(--transition)",
+        whiteSpace: "nowrap",
+    },
+    {
+        "&:hover": {
+            transform: "translateY(-1px)",
+            borderColor:
+                "color-mix(in srgb, var(--emphasis-color) 42%, transparent)",
+            backgroundColor: "var(--accent-soft)",
+            color: "var(--emphasis-color)",
+        },
+    },
+);
+
 const quickGridCardClass = addClass(
     {
         display: "flex",
         flexDirection: "column",
         alignItems: "flex-start",
-        gap: "8px",
-        padding: "13px 14px",
-        borderRadius: "12px",
+        gap: "9px",
+        padding: "14px 15px",
+        borderRadius: "15px",
         backgroundColor: "var(--surface)",
         border: "1px solid var(--border-subtle)",
         outline: "none",
@@ -3387,30 +3428,61 @@ const quickGridCardClass = addClass(
         textAlign: "left",
         height: "auto",
         width: "100%",
+        boxShadow: "var(--shadow-sm)",
         transition:
             "transform var(--transition), border-color var(--transition), box-shadow var(--transition), background-color var(--transition)",
     },
     {
         "&:hover": {
-            transform: "translateY(-2px)",
+            transform: "translateY(-3px)",
             borderColor:
-                "color-mix(in srgb, var(--emphasis-color) 42%, transparent)",
+                "color-mix(in srgb, var(--emphasis-color) 48%, transparent)",
             boxShadow: "var(--shadow)",
-            backgroundColor: "var(--surface)",
+            backgroundColor: "var(--surface-elevated)",
+        },
+        "&:active": {
+            transform: "translateY(-1px) scale(0.985)",
         },
         "& .q-icon": {
-            width: "30px",
-            height: "30px",
-            borderRadius: "8px",
-            backgroundColor: "var(--accent-soft)",
+            width: "34px",
+            height: "34px",
+            borderRadius: "10px",
             outline: "none",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
+            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.14)",
+            transition: "transform var(--transition)",
+        },
+        "&:hover .q-icon": {
+            transform: "scale(1.08) rotate(-2deg)",
         },
         "& .q-icon .icon": {
-            width: "16px",
-            height: "16px",
+            width: "17px",
+            height: "17px",
+            filter: "brightness(0) invert(1)",
+        },
+    },
+);
+
+const powerToggleCardClass = addClass(
+    {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "10px",
+        padding: "10px 13px",
+        borderRadius: "13px",
+        backgroundColor: "var(--surface)",
+        border: "1px solid var(--border-subtle)",
+        boxShadow: "var(--shadow-sm)",
+        transition:
+            "border-color var(--transition), background-color var(--transition)",
+    },
+    {
+        "&:hover": {
+            borderColor:
+                "color-mix(in srgb, var(--emphasis-color) 34%, transparent)",
         },
     },
 );
@@ -5972,6 +6044,14 @@ function isDarkMode() {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
+function jumpToPage(pageIndex: number) {
+    searchI.sv("");
+    searchClearBtn.style({ display: "none" });
+    searchCountBadge.style({ display: "none" });
+    sideBarG.set(String(pageIndex));
+    void showPage(main.at(pageIndex));
+}
+
 function buildDashboardHero() {
     const clipKey = formatShortcutBadge(
         getSet("快捷键.截屏搜索")?.key ||
@@ -5980,66 +6060,240 @@ function buildDashboardHero() {
     const quickKey = formatShortcutBadge(getSet("快捷键.快速截屏")?.key);
     const dingKey = formatShortcutBadge(getSet("快捷键.剪贴板贴图")?.key);
     const isDirectML = getSet("AI.运行后端") === "directml";
+    const renderMode = getSet("渲染模式") || "d3d11";
+    const renderModeLabels: Record<string, string> = {
+        d3d11: "D3D11 固定渲染",
+        igpu: "核显优先",
+        dgpu: "独显优先",
+        software: "兼容软渲染",
+        auto: "系统自动",
+    };
+    const imgEngineId = getSet("以图搜图.引擎") || "bing";
+    const imgEngineName =
+        IMAGE_SEARCH_ENGINES.find((e) => e.id === imgEngineId)?.name ??
+        "必应识图";
+
+    const telemetryChips: { label: string; dot: string; pageIdx: number }[] = [
+        {
+            label: renderModeLabels[renderMode] ?? renderMode,
+            dot: "#38bdf8",
+            pageIdx: 1,
+        },
+        {
+            label: isDirectML ? t("DirectML 显卡加速 OCR") : t("CPU 本地 OCR"),
+            dot: "#10b981",
+            pageIdx: 3,
+        },
+        {
+            label: `${t("以图搜图")}: ${t(imgEngineName)}`,
+            dot: "#8b5cf6",
+            pageIdx: 10,
+        },
+        {
+            label: getSet("框选.识别窗口元素")
+                ? t("智能元素识别 · 开")
+                : t("智能元素识别 · 关"),
+            dot: getSet("框选.识别窗口元素") ? "#10b981" : "#94a3b8",
+            pageIdx: 1,
+        },
+    ];
 
     const quickItems: {
         icon: IconType;
         title: string;
         desc: string;
         badge?: string;
+        gradient: string;
         onClick: () => void;
     }[] = [
         {
             icon: "rect_select",
             title: t("区域截图"),
-            desc: t("智能窗口识别与原地 OCR/翻译"),
+            desc: t("智能窗口/控件识别与原地 OCR 翻译"),
             badge: clipKey,
+            gradient: "linear-gradient(135deg, #2563eb, #06b6d4)",
             onClick: () => renderSend("setting_quick_action", ["clip"]),
         },
         {
             icon: "camera",
             title: t("全屏快截"),
-            desc: t("一键抓取整屏并写入剪贴板"),
+            desc: t("一键抓取整屏并直入剪贴板"),
             badge: quickKey,
+            gradient: "linear-gradient(135deg, #0891b2, #22d3ee)",
             onClick: () => renderSend("setting_quick_action", ["quick_clip"]),
+        },
+        {
+            icon: "search",
+            title: t("以图搜图"),
+            desc: t("多引擎真图检索 · 支持拖入与粘贴"),
+            badge: t("多引擎"),
+            gradient: "linear-gradient(135deg, #7c3aed, #a855f7)",
+            onClick: () => renderSend("setting_quick_action", ["image_search"]),
+        },
+        {
+            icon: "record",
+            title: t("超级录屏"),
+            desc: t("鼠标平滑跟踪与关键帧演示录制"),
+            badge: t("自动运镜"),
+            gradient: "linear-gradient(135deg, #e11d48, #fb7185)",
+            onClick: () => renderSend("setting_quick_action", ["super_record"]),
         },
         {
             icon: "ding",
             title: t("剪贴板贴图"),
-            desc: t("将剪贴板图片置顶悬浮查看"),
+            desc: t("将剪贴板图片置顶悬浮对比"),
             badge: dingKey,
+            gradient: "linear-gradient(135deg, #d97706, #fbbf24)",
             onClick: () =>
                 renderSend("setting_quick_action", ["ding_clipboard"]),
         },
         {
             icon: "translate",
             title: t("离线翻译模型"),
-            desc: t("管理内置及多语种离线模型"),
+            desc: t("管理内置及多语种离线翻译包"),
             badge: t("免 API"),
+            gradient: "linear-gradient(135deg, #059669, #34d399)",
             onClick: openBergamotDialog,
         },
     ];
 
-    return view("y")
+    const quickToggles: {
+        path: "框选.识别窗口元素" | "框选.动画" | "主页面.自动复制OCR";
+        title: string;
+        sub: string;
+    }[] = [
+        {
+            path: "框选.识别窗口元素",
+            title: t("智能窗口元素识别"),
+            sub: t("悬停自动贴合按钮与卡片"),
+        },
+        {
+            path: "框选.动画",
+            title: t("选区平滑过渡"),
+            sub: t("切换目标时丝滑跟随"),
+        },
+        {
+            path: "主页面.自动复制OCR",
+            title: t("OCR 自动复制"),
+            sub: t("识别完成自动写入剪贴板"),
+        },
+    ];
+
+    const cards = quickItems.map((item, idx) => {
+        const card = button([
+            view("x")
+                .style({
+                    width: "100%",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                })
+                .add([
+                    view()
+                        .class("q-icon", "pun-no-icon-box")
+                        .style({ background: item.gradient })
+                        .add(inlineIconEl(item.icon, 17)),
+                    item.badge
+                        ? ele("kbd")
+                              .add(noI18n(item.badge))
+                              .style({ fontSize: "10.5px" })
+                        : "",
+                ]),
+            txt(item.title, true).style({
+                fontSize: "14px",
+                fontWeight: 650,
+            }),
+            txt(item.desc, true).style({
+                fontSize: "11.5px",
+                color: cssColor.font.light,
+                lineHeight: "1.4",
+            }),
+        ])
+            .class(quickGridCardClass)
+            .style({
+                animation: `punCardIn 0.26s var(--ease-out-expo) ${idx * 34}ms both`,
+            })
+            .on("click", item.onClick);
+        attachSpotlight(card.el);
+        return card;
+    });
+
+    const toggleStrip = view()
+        .style({
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(195px, 1fr))",
+            gap: "8px",
+        })
+        .add(
+            quickToggles.map((tg) => {
+                const sw = input("checkbox").data({ xtype: "switch" });
+                sw.el.checked = Boolean(getSet(tg.path));
+                sw.on("change", () => {
+                    const v = sw.el.checked;
+                    setSet(tg.path, v);
+                    showToast(
+                        `${tg.title}: ${v ? t("已开启") : t("已关闭")}`,
+                        "success",
+                        1400,
+                    );
+                });
+                const card = view("x")
+                    .class(powerToggleCardClass)
+                    .style({ cursor: "pointer" })
+                    .on("click", (e) => {
+                        if (e.target === sw.el) return;
+                        sw.el.checked = !sw.el.checked;
+                        sw.el.dispatchEvent(new Event("change"));
+                    })
+                    .add([
+                        view("y")
+                            .style({ gap: "1px", minWidth: 0 })
+                            .add([
+                                txt(tg.title, true).style({
+                                    fontSize: "12.5px",
+                                    fontWeight: 600,
+                                }),
+                                txt(tg.sub, true).style({
+                                    fontSize: "11px",
+                                    color: cssColor.font.light,
+                                }),
+                            ]),
+                        sw,
+                    ]);
+                return card;
+            }),
+        );
+
+    const hero = view("y")
         .class(heroBannerClass)
         .add([
             view("x", "wrap")
                 .style({
                     justifyContent: "space-between",
-                    alignItems: "center",
+                    alignItems: "flex-start",
                     gap: "12px",
                 })
                 .add([
                     view("y")
-                        .style({ gap: "4px" })
+                        .style({ gap: "5px" })
                         .add([
-                            txt(noI18n(`${packageJson.name} 工作台`)).style({
-                                fontSize: "17px",
-                                fontWeight: 700,
-                                letterSpacing: "-0.01em",
-                            }),
+                            view("x")
+                                .style({ alignItems: "center", gap: "8px" })
+                                .add([
+                                    view().class("pun-live-dot"),
+                                    txt(
+                                        noI18n(`${packageJson.name} Studio`),
+                                    ).style({
+                                        fontSize: "19px",
+                                        fontWeight: 750,
+                                        letterSpacing: "-0.02em",
+                                    }),
+                                    txt(
+                                        noI18n(`v${packageJson.version}`),
+                                    ).class("pun-pill"),
+                                ]),
                             txt(
                                 t(
-                                    "1:1 高分屏原画直出 · 原地 OCR 选字与覆盖翻译 · 离线包内置",
+                                    "1:1 高分屏零闪烁极速截屏 · 原地 OCR 与翻译 · 多引擎以图搜图",
                                 ),
                             ).style({
                                 fontSize: "12.5px",
@@ -6048,58 +6302,37 @@ function buildDashboardHero() {
                         ]),
                     view("x", "wrap")
                         .style({ gap: "6px" })
-                        .add([
-                            txt(
-                                isDirectML
-                                    ? t("DirectML 显卡加速 OCR")
-                                    : t("CPU 本地 OCR"),
-                            ).class("pun-pill"),
-                            txt(t("离线 + 免费翻译")).class("pun-pill"),
-                        ]),
+                        .add(
+                            telemetryChips.map((chip) =>
+                                button([
+                                    view().style({
+                                        width: "6px",
+                                        height: "6px",
+                                        borderRadius: "999px",
+                                        backgroundColor: chip.dot,
+                                        boxShadow: `0 0 8px ${chip.dot}`,
+                                        flexShrink: 0,
+                                    }),
+                                    txt(chip.label, true),
+                                ])
+                                    .class(telemetryChipClass)
+                                    .on("click", () =>
+                                        jumpToPage(chip.pageIdx),
+                                    ),
+                            ),
+                        ),
                 ]),
             view()
                 .style({
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(156px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(195px, 1fr))",
                     gap: "10px",
                 })
-                .add(
-                    quickItems.map((item, idx) =>
-                        button([
-                            view("x")
-                                .style({
-                                    width: "100%",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                })
-                                .add([
-                                    view()
-                                        .class("q-icon", "pun-no-icon-box")
-                                        .add(inlineIconEl(item.icon, 16)),
-                                    item.badge
-                                        ? ele("kbd")
-                                              .add(noI18n(item.badge))
-                                              .style({ fontSize: "11px" })
-                                        : "",
-                                ]),
-                            txt(item.title, true).style({
-                                fontSize: "13.5px",
-                                fontWeight: 600,
-                            }),
-                            txt(item.desc, true).style({
-                                fontSize: "11.5px",
-                                color: cssColor.font.light,
-                                lineHeight: "1.35",
-                            }),
-                        ])
-                            .class(quickGridCardClass)
-                            .style({
-                                animation: `punCardIn 0.24s var(--ease-out-expo) ${idx * 40}ms both`,
-                            })
-                            .on("click", item.onClick),
-                    ),
-                ),
+                .add(cards),
+            toggleStrip,
         ]);
+    attachSpotlight(hero.el);
+    return hero;
 }
 
 let showPageSeq = 0;
@@ -6517,14 +6750,15 @@ addStyle({
 const sideBar = view("y")
     .addInto()
     .style({
-        padding: "16px 12px",
+        padding: "16px 12px 18px",
         flexShrink: 0,
-        width: "248px",
+        width: "256px",
         height: "100vh",
         overflowY: "auto",
-        backgroundColor: "var(--surface)",
+        backgroundColor: "var(--surface-glass)",
+        backdropFilter: "blur(20px) saturate(160%)",
         borderRight: "1px solid var(--border-subtle)",
-        gap: "3px",
+        gap: "2px",
     })
     .class(
         addClass(
@@ -6543,12 +6777,13 @@ const clipShortcutBadge = formatShortcutBadge(
 const brandHeader = view("y")
     .style({
         gap: "10px",
-        padding: "10px 8px 14px",
-        marginBottom: "8px",
-        borderBottom: "1px solid var(--border-subtle)",
-        borderRadius: "12px",
+        padding: "12px 10px 14px",
+        marginBottom: "6px",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "15px",
         background:
-            "radial-gradient(circle at top left, color-mix(in srgb, var(--emphasis-color) 12%, transparent), transparent 72%)",
+            "radial-gradient(circle at top left, color-mix(in srgb, var(--emphasis-color) 16%, transparent), transparent 72%), var(--surface)",
+        boxShadow: "var(--shadow-sm)",
     })
     .add([
         view("x")
@@ -6559,10 +6794,10 @@ const brandHeader = view("y")
                         .href,
                     noI18n("logo"),
                 ).style({
-                    width: "34px",
-                    height: "34px",
-                    borderRadius: "9px",
-                    boxShadow: "0 2px 8px rgba(37, 99, 235, 0.22)",
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "10px",
+                    boxShadow: "0 4px 12px var(--accent-glow)",
                 }),
                 view("y")
                     .style({ gap: "2px", minWidth: 0 })
@@ -6571,8 +6806,9 @@ const brandHeader = view("y")
                             .style({ alignItems: "center", gap: "8px" })
                             .add([
                                 txt(noI18n(packageJson.name)).style({
-                                    fontSize: "15.5px",
-                                    fontWeight: 700,
+                                    fontSize: "16px",
+                                    fontWeight: 750,
+                                    letterSpacing: "-0.02em",
                                     lineHeight: "1.2",
                                 }),
                             ]),
@@ -6600,11 +6836,15 @@ const brandHeader = view("y")
                         fontSize: "10.5px",
                         fontFamily: "var(--monospace)",
                         padding: "1px 6px",
-                        borderRadius: "5px",
-                        backgroundColor: "rgba(255, 255, 255, 0.2)",
+                        borderRadius: "6px",
+                        backgroundColor: "rgba(255, 255, 255, 0.22)",
                     }),
                 ])
-                    .class(quickClipBtnClass, "pun-no-icon-box")
+                    .class(
+                        "pun-btn-primary",
+                        quickClipBtnClass,
+                        "pun-no-icon-box",
+                    )
                     .on("click", () => {
                         renderSend("setting_quick_action", ["clip"]);
                     }),
@@ -6624,14 +6864,15 @@ const brandHeader = view("y")
                     .on("click", () =>
                         renderSend("setting_quick_action", ["ding_clipboard"]),
                     ),
-                button([inlineIconEl("main", 14), txt(t("主窗"), true)])
+                button([inlineIconEl("search", 14), txt(t("搜图"), true)])
                     .class(miniActionBtnClass, "pun-no-icon-box")
-                    .attr({ title: "打开文字识别与翻译主窗口" })
+                    .attr({ title: "打开多引擎以图搜图工作台" })
                     .on("click", () =>
-                        renderSend("setting_quick_action", ["main_window"]),
+                        renderSend("setting_quick_action", ["image_search"]),
                     ),
             ]),
     ]);
+attachSpotlight(brandHeader.el);
 sideBar.add(brandHeader);
 
 const sideBarG = radioGroup("侧栏");
@@ -6641,9 +6882,19 @@ const searchBar = view("x").style({
     zIndex: 10,
     padding: "14px 28px",
     justifyContent: "center",
-    backgroundColor: "color-mix(in srgb, var(--bg) 82%, transparent)",
-    backdropFilter: "blur(16px)",
+    backgroundColor: "color-mix(in srgb, var(--bg) 76%, transparent)",
+    backdropFilter: "blur(20px) saturate(165%)",
     borderBottom: "1px solid var(--border-subtle)",
+});
+const searchCountBadge = txt("").class("pun-pill").style({
+    display: "none",
+    position: "absolute",
+    right: "94px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    fontSize: "11px",
+    padding: "1px 8px",
+    pointerEvents: "none",
 });
 const searchClearBtn = button("×").attr({ title: "清空搜索" }).style({
     display: "none",
@@ -6665,7 +6916,7 @@ const searchWrap = view()
     .style({
         position: "relative",
         width: "100%",
-        maxWidth: "740px",
+        maxWidth: "796px",
         display: "flex",
         alignItems: "center",
     })
@@ -6673,7 +6924,7 @@ const searchWrap = view()
 inlineIconEl("search", 16)
     .style({
         position: "absolute",
-        left: "12px",
+        left: "14px",
         top: "50%",
         transform: "translateY(-50%)",
         opacity: 0.55,
@@ -6681,18 +6932,22 @@ inlineIconEl("search", 16)
     })
     .addInto(searchWrap);
 const searchI = input()
-    .attr({ placeholder: t("搜索设置项或快捷键...") })
+    .attr({ placeholder: t("搜索设置项、功能或快捷键...") })
     .style({
         width: "100%",
-        height: "38px",
-        borderRadius: "12px",
-        paddingInline: "36px 96px",
+        height: "40px",
+        borderRadius: "999px",
+        paddingInline: "40px 158px",
         fontSize: "13.5px",
+        backgroundColor: "var(--surface-glass)",
+        boxShadow: "var(--shadow-sm)",
     })
     .addInto(searchWrap)
     .on("input", () => {
-        searchClearBtn.style({ display: searchI.gv ? "inline-flex" : "none" });
-        if (!searchI.gv) {
+        const hasVal = Boolean(searchI.gv);
+        searchClearBtn.style({ display: hasVal ? "inline-flex" : "none" });
+        if (!hasVal) {
+            searchCountBadge.style({ display: "none" });
             showPage(main.at(Number(sideBarG.get())));
             return;
         }
@@ -6704,6 +6959,9 @@ const searchI = input()
         );
 
         const l = fuse.search(searchI.gv).map((i) => i.item[0]);
+        searchCountBadge
+            .sv(`${l.length} ${t("项")}`)
+            .style({ display: "inline-flex" });
         if (l.length === 0)
             mainView.clear().add(
                 xGroup("y")
@@ -6723,16 +6981,18 @@ const searchI = input()
             );
         else renderSettingList(l);
     });
+searchCountBadge.addInto(searchWrap);
 searchClearBtn.addInto(searchWrap).on("click", () => {
     searchI.sv("");
     searchClearBtn.style({ display: "none" });
+    searchCountBadge.style({ display: "none" });
     showPage(main.at(Number(sideBarG.get())));
 });
 ele("kbd")
     .add(noI18n(isMac ? "⌘K" : "Ctrl+K"))
     .style({
         position: "absolute",
-        right: "10px",
+        right: "12px",
         top: "50%",
         transform: "translateY(-50%)",
         fontSize: "11px",
@@ -6749,33 +7009,34 @@ window.addEventListener("keydown", (e) => {
     } else if (e.key === "Escape" && searchI.gv) {
         searchI.sv("");
         searchClearBtn.style({ display: "none" });
+        searchCountBadge.style({ display: "none" });
         showPage(main.at(Number(sideBarG.get())));
     }
 });
-const mainViewP = view().addInto().style({
+const mainViewP = view().addInto().class("pun-aurora-canvas").style({
     overflowY: "auto",
     height: "100vh",
     flexGrow: "1",
 });
 mainViewP.add(searchBar);
 const mainView = view().addInto(mainViewP).style({
-    maxWidth: "796px",
+    maxWidth: "840px",
     margin: "0 auto",
     padding: "24px 28px 40px",
-    minHeight: "calc(100vh - 67px)",
+    minHeight: "calc(100vh - 69px)",
 });
 
 mainViewP.add(
     view()
         .style({
-            maxWidth: "796px",
+            maxWidth: "840px",
             margin: "0 auto 48px",
             paddingInline: "28px",
         })
         .add(
             about()
                 .class(settingCardClass)
-                .style({ padding: "24px", borderRadius: "14px" }),
+                .style({ padding: "26px", borderRadius: "18px" }),
         ),
 );
 
@@ -6801,7 +7062,18 @@ function showContextMenu(e: MouseEvent) {
     contextMenuP.el.showPopover();
 }
 
+const navGroupHeaders: Record<number, string> = {
+    0: t("工作台"),
+    1: t("截屏与智能"),
+    5: t("效率工具"),
+    11: t("系统与外观"),
+};
+
 for (const [i, page] of main.entries()) {
+    const groupTitle = navGroupHeaders[i];
+    if (groupTitle) {
+        sideBar.add(txt(groupTitle, true).class("pun-section-eyebrow"));
+    }
     const labelContent = view("x")
         .class("pun-no-icon-box")
         .style({

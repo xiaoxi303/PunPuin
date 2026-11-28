@@ -18,6 +18,7 @@ import type { IconType } from "../../iconTypes";
 import { type aiData, runAI } from "../lib/ai";
 import { writeText } from "../lib/clipboard";
 import {
+    attachSpotlight,
     Class,
     cssColor,
     cssVar,
@@ -72,18 +73,40 @@ const promptsEl = view("x", "wrap")
             { name: t("翻译图片"), p: "将图片中的所有文字翻译成简体中文" },
             { name: t("总结要点"), p: "用简洁的要点总结图片中的核心信息" },
         ].map((x) =>
-            button(x.name).on("click", (e) => {
-                if (e.ctrlKey) {
-                    inputEl.el.setRangeText(x.p);
-                } else {
-                    setItem(x.p, "text");
-                    newChatItem(currentId);
-                    runAIX();
-                }
-            }),
+            button(x.name)
+                .class("ai-prompt-chip")
+                .on("click", (e) => {
+                    if (e.ctrlKey) {
+                        inputEl.el.setRangeText(x.p);
+                    } else {
+                        setItem(x.p, "text");
+                        newChatItem(currentId);
+                        runAIX();
+                    }
+                }),
         ),
     );
 // todo 自定义
+
+const sendBtn = button(t("发送"))
+    .class("pun-btn-primary", "ai-send-btn")
+    .on("click", () => {
+        if (!inputEl.gv.trim() && !content.get(currentId)?.content.img) return;
+        runAIX();
+        inputEl.sv("");
+    });
+
+const clearChatBtn = iconEl("reload")
+    .attr({ title: t("清空对话") })
+    .on("click", () => {
+        content.clear();
+        for (const node of showList.el.querySelectorAll(".chat-item")) {
+            node.remove();
+        }
+        currentId = uuid();
+        if (model.length === 0) emptyGuideEl.style({ display: "flex" });
+        showToast(t("已开启新对话"), "info", 1200);
+    });
 
 const stopEl = iconEl("close")
     .attr({ title: "停止生成" })
@@ -316,23 +339,98 @@ inputEl
         }
     });
 
-fileInputEl.on("change", async (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+function loadImageFile(file: File) {
     const id = currentId;
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = async (ev) => {
-        if (!ev.target) return;
-        const url = ev.target.result as string;
-        setItem(url, "image_url");
+    reader.onload = (ev) => {
+        if (!ev.target || typeof ev.target.result !== "string") return;
+        setItem(ev.target.result, "image_url");
         newChatItem(id);
+        showToast(t("已导入图片，可直接提问或点击快捷指令"), "success", 1600);
     };
+}
+
+fileInputEl.on("change", (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    loadImageFile(file);
+    fileInputEl.el.value = "";
+});
+
+window.addEventListener("paste", (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+                e.preventDefault();
+                loadImageFile(file);
+                return;
+            }
+        }
+    }
 });
 
 addStyle({
     body: {
         background: cssColor.bg,
+        margin: "0",
+    },
+    ".ai-shell": {
+        height: "100vh",
+        position: "relative",
+    },
+    ".ai-shell.drag-over": {
+        outline: "2px dashed var(--emphasis-color)",
+        "outline-offset": "-6px",
+    },
+    ".ai-header": {
+        display: "flex",
+        "align-items": "center",
+        "justify-content": "space-between",
+        gap: "10px",
+        padding: "10px 14px",
+        "border-bottom": "1px solid var(--border-subtle)",
+        background: "var(--surface-glass)",
+        "backdrop-filter": "blur(18px) saturate(170%)",
+        "flex-shrink": 0,
+    },
+    ".ai-prompt-chip": {
+        height: "28px !important",
+        "padding-inline": "10px !important",
+        "border-radius": "999px !important",
+        "font-size": "12px !important",
+        "font-weight": "500 !important",
+        "background-color": "var(--surface-2) !important",
+    },
+    ".ai-prompt-chip:hover": {
+        "background-color": "var(--accent-soft) !important",
+        color: "var(--emphasis-color) !important",
+    },
+    ".ai-send-btn": {
+        height: "28px !important",
+        "padding-inline": "14px !important",
+        "border-radius": "999px !important",
+        "font-size": "12px !important",
+    },
+    ".ai-composer": {
+        margin: "0 12px 12px",
+        gap: "4px",
+        padding: "4px 6px 6px",
+        "border-radius": "16px",
+        background: "var(--surface-glass)",
+        "backdrop-filter": "blur(20px) saturate(180%)",
+        border: "1px solid var(--glass-border)",
+        "box-shadow": "var(--shadow), inset 0 1px 0 var(--glass-highlight)",
+        transition:
+            "border-color var(--transition), box-shadow var(--transition)",
+    },
+    ".ai-composer:focus-within": {
+        "border-color":
+            "color-mix(in srgb, var(--emphasis-color) 48%, transparent)",
+        "box-shadow": "var(--shadow), 0 0 0 3px var(--accent-soft)",
     },
     ".chat-item": {
         "max-width": "84%",
@@ -342,19 +440,21 @@ addStyle({
         animation: "punCardIn 0.22s var(--ease-out-expo)",
     },
     ".chat-bubble": {
-        padding: "10px 14px",
-        "border-radius": "14px",
+        padding: "11px 15px",
+        "border-radius": "16px",
         border: "1px solid var(--border-subtle)",
-        "background-color": "var(--surface)",
+        "background-color": "var(--surface-glass)",
+        "backdrop-filter": "blur(14px)",
         "box-shadow": "var(--shadow-sm)",
         "line-height": "1.6",
         "user-select": "text",
         "overflow-x": "auto",
     },
     ".user .chat-bubble": {
-        "background-color": "var(--accent-soft)",
+        background:
+            "linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--emphasis-color) 8%, var(--surface)))",
         "border-color":
-            "color-mix(in srgb, var(--emphasis-color) 24%, transparent)",
+            "color-mix(in srgb, var(--emphasis-color) 28%, transparent)",
     },
     ".system": {
         width: "100%",
@@ -383,7 +483,7 @@ addStyle({
     },
     ".chat-bubble pre": {
         padding: "10px 12px",
-        "border-radius": "8px",
+        "border-radius": "10px",
         "background-color": "var(--surface-2)",
         "font-family": "var(--monospace)",
         "font-size": "12.5px",
@@ -391,35 +491,68 @@ addStyle({
     },
 });
 
-view("y")
-    .style({ height: "100vh" })
+const composerCard = view("y")
+    .class("ai-composer")
     .add([
-        showList,
-        view("y")
-            .class("pun-card")
-            .add([
-                view("x", "wrap")
-                    .style({
-                        gap: "8px",
-                        alignItems: "center",
-                        padding: "8px 10px 0",
-                    })
-                    .class(Class.smallSize)
-                    .add([
-                        label([
-                            fileInputEl.style({ display: "none" }),
-                            t("上传图片"),
-                        ]).class("b-like"),
-                        selectModelEl,
-                        promptsEl,
-                        stopEl,
-                    ]),
-                inputEl,
-            ])
+        view("x", "wrap")
             .style({
-                margin: "0 10px 10px",
-                gap: "4px",
-                padding: "0 4px 4px",
-            }),
-    ])
+                gap: "6px",
+                alignItems: "center",
+                padding: "6px 8px 0",
+            })
+            .class(Class.smallSize)
+            .add([
+                label([
+                    fileInputEl.style({ display: "none" }),
+                    t("上传图片"),
+                ]).class("b-like"),
+                promptsEl,
+                view().style({ flex: "1" }),
+                stopEl,
+                sendBtn,
+            ]),
+        inputEl,
+    ]);
+attachSpotlight(composerCard.el);
+
+const aiHeader = view("x")
+    .class("ai-header")
+    .add([
+        view("x")
+            .style({ alignItems: "center", gap: "8px" })
+            .add([
+                view().class("pun-live-dot"),
+                ele("strong")
+                    .style({ fontSize: "14px", letterSpacing: "-0.01em" })
+                    .add(t("AI 视觉工作台")),
+                ele("span")
+                    .class("pun-pill")
+                    .add(t("支持拖入 / Ctrl+V 粘贴图片")),
+            ]),
+        view("x")
+            .class(Class.smallSize)
+            .style({ alignItems: "center", gap: "6px" })
+            .add([selectModelEl, clearChatBtn]),
+    ]);
+
+const aiShell = view("y")
+    .class("ai-shell", "pun-aurora-canvas")
+    .add([aiHeader, showList, composerCard])
     .addInto();
+
+aiShell
+    .on("dragover", (e) => {
+        e.preventDefault();
+        aiShell.el.classList.add("drag-over");
+    })
+    .on("dragleave", () => {
+        aiShell.el.classList.remove("drag-over");
+    })
+    .on("drop", (e) => {
+        e.preventDefault();
+        aiShell.el.classList.remove("drag-over");
+        const file = e.dataTransfer?.files?.[0];
+        if (file?.type.startsWith("image/")) {
+            loadImageFile(file);
+        }
+    });

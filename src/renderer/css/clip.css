@@ -127,14 +127,14 @@ body input {
     align-items: center;
     gap: 2px;
     width: max-content;
-    height: calc(var(--bar-size) + 8px);
+    height: calc(var(--bar-size) + 10px);
     box-sizing: border-box;
-    padding: 4px 6px;
+    padding: 5px 7px;
     position: fixed;
     z-index: 99;
     left: -9999px;
     top: -9999px;
-    border-radius: 11px;
+    border-radius: 13px;
     overflow: visible;
     transition:
         opacity 0.18s ease,
@@ -210,10 +210,12 @@ body input {
 
 /* 主操作高亮：复制/完成 */
 #tool_copy {
+    position: relative;
+    overflow: hidden;
     cursor: pointer !important;
     width: auto !important;
-    padding-inline: 10px !important;
-    margin-left: 2px;
+    padding-inline: 11px !important;
+    margin-left: 3px;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -222,14 +224,37 @@ body input {
     background: linear-gradient(
         135deg,
         var(--emphasis-color),
-        color-mix(in srgb, var(--emphasis-color) 76%, #06b6d4)
+        color-mix(in srgb, var(--emphasis-color) 74%, #06b6d4)
     ) !important;
-    box-shadow: 0 2px 10px
-        color-mix(in srgb, var(--emphasis-color) 42%, transparent);
+    box-shadow:
+        0 3px 12px color-mix(in srgb, var(--emphasis-color) 46%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    &::after {
+        content: "";
+        position: absolute;
+        top: -20%;
+        left: -70%;
+        width: 50%;
+        height: 140%;
+        background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(255, 255, 255, 0.34),
+            transparent
+        );
+        transform: skewX(-22deg);
+        pointer-events: none;
+        transition: left 0.55s var(--ease-out-expo);
+    }
     &:hover {
         filter: brightness(1.08);
-        box-shadow: 0 4px 14px
-            color-mix(in srgb, var(--emphasis-color) 52%, transparent);
+        box-shadow:
+            0 5px 16px
+            color-mix(in srgb, var(--emphasis-color) 56%, transparent),
+            inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    }
+    &:hover::after {
+        left: 125%;
     }
     & > .icon {
         width: calc(var(--bar-size) * 0.48) !important;
@@ -361,10 +386,10 @@ body input {
     align-items: center;
     gap: 2px;
     width: max-content;
-    height: calc(var(--bar-size) + 8px);
+    height: calc(var(--bar-size) + 10px);
     box-sizing: border-box;
-    padding: 4px 6px;
-    border-radius: 11px;
+    padding: 5px 7px;
+    border-radius: 13px;
 }
 #draw_bar[data-dock="inline"] > #draw_main {
     border-top-right-radius: 0;
@@ -660,15 +685,18 @@ body input {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     position: fixed;
     z-index: 100;
-    padding: 7px;
-    border-radius: 14px;
+    padding: 8px;
+    border-radius: 16px;
     overflow: hidden;
     pointer-events: none;
     left: 0;
     top: 0;
+    box-shadow:
+        0 14px 34px rgba(2, 6, 23, 0.34),
+        inset 0 1px 0 var(--glass-highlight);
 }
 .mouse_bar_hide {
     transition: opacity 0.16s ease;

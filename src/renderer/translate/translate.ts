@@ -1,5 +1,12 @@
 import { matchFitLan } from "xtranslator";
-import { Class, cssColor, getImgUrl, initStyle, showToast } from "../root/root";
+import {
+    attachSpotlight,
+    Class,
+    cssColor,
+    getImgUrl,
+    initStyle,
+    showToast,
+} from "../root/root";
 
 const fs = require("node:fs") as typeof import("fs");
 
@@ -36,10 +43,11 @@ pack(document.body)
         display: "flex",
         flexDirection: "column",
         height: "100vh",
-        padding: "10px",
+        margin: "0",
+        padding: "12px",
         gap: "10px",
     })
-    .class(Class.gap);
+    .class(Class.gap, "pun-aurora-canvas");
 
 const charCount = txt("0 字").style({
     fontSize: "11.5px",
@@ -87,26 +95,44 @@ function updateCharCount() {
 }
 
 const inputCard = view("y")
-    .class("pun-card")
-    .style({ flexShrink: 0, overflow: "hidden" })
+    .class("pun-card", "pun-glass-panel")
+    .style({
+        flexShrink: 0,
+        overflow: "hidden",
+        borderRadius: "16px",
+    })
     .add([
         input,
         view("x")
             .style({
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "4px 10px 8px",
+                padding: "4px 12px 9px",
             })
-            .add([charCount, clearInputBtn]),
+            .add([
+                view("x")
+                    .style({ alignItems: "center", gap: "8px" })
+                    .add([
+                        charCount,
+                        txt(t("Ctrl+Enter 立即翻译")).style({
+                            fontSize: "11px",
+                            color: cssColor.font.llight,
+                        }),
+                    ]),
+                clearInputBtn,
+            ]),
     ]);
+attachSpotlight(inputCard.el);
 
-const lans = view("x")
-    .style({
-        justifyContent: "center",
-        alignItems: "center",
-        flexShrink: 0,
-    })
-    .class(Class.gap);
+const lans = view("x").class("pun-glass-panel").style({
+    justifyContent: "center",
+    alignItems: "center",
+    alignSelf: "center",
+    flexShrink: 0,
+    padding: "5px 8px",
+    borderRadius: "999px",
+    gap: "8px",
+});
 
 const setLan = (el: HTMLSelectElement, lan: string) => {
     const supportLans = Array.from(el.querySelectorAll("option")).map(
@@ -202,7 +228,10 @@ function translate(_text: string) {
                 .class("pun-card")
                 .style({
                     width: "100%",
-                    padding: "12px 14px",
+                    padding: "13px 15px",
+                    borderRadius: "15px",
+                    backgroundColor: "var(--surface-glass)",
+                    backdropFilter: "blur(16px)",
                     animation: `punCardIn 0.24s var(--ease-out-expo) ${Math.min(cardIdx * 45, 220)}ms both`,
                 }),
             title: {
@@ -232,6 +261,7 @@ function translate(_text: string) {
                 fontSize: "0.92em",
             }),
         });
+        attachSpotlight(e.el.el);
         results.add(e.el);
         const c = e.els.content;
         let currentTranslated = "";

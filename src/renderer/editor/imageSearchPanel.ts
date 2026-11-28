@@ -9,7 +9,7 @@ import { renderInvoke, renderSend } from "../../../lib/ipc";
 import store from "../../../lib/store/renderStore";
 import { t } from "../../../lib/translate/translate";
 import { writeText } from "../lib/clipboard";
-import { Class, getImgUrl, showToast } from "../root/root";
+import { attachSpotlight, Class, getImgUrl, showToast } from "../root/root";
 
 export type ImageSearchStudioCallbacks = {
     getWindowName: () => number;
@@ -85,12 +85,35 @@ export function createImageSearchStudio(
     const previewCard = view("y")
         .class("pun-card", "ims_preview_card")
         .addInto(bodyGrid);
+    attachSpotlight(previewCard.el);
 
-    const previewImg = image("", "preview").class("ims_preview_img");
+    const previewImg = image("", "preview")
+        .class("ims_preview_img")
+        .style({ display: "none" });
+    const emptyPrompt = view("y")
+        .class("ims_empty_prompt")
+        .add([
+            view()
+                .class("ims_empty_icon", "pun-no-icon-box")
+                .add(image(getImgUrl("img.svg"), "icon").class("icon")),
+            txt(t("拖入图片、点击选图或 Ctrl+V 粘贴")).style({
+                fontSize: "12.5px",
+                fontWeight: 600,
+                textAlign: "center",
+            }),
+            txt(t("支持 PNG / JPG / WebP，自动压缩直达真图检索")).style({
+                fontSize: "11px",
+                color: "var(--font-color-l)",
+                textAlign: "center",
+            }),
+        ]);
     const previewScan = view().class("ims_scan_beam");
     const previewStage = view()
         .class("ims_preview_stage")
-        .add([previewImg, previewScan])
+        .add([previewImg, emptyPrompt, previewScan])
+        .on("click", () => {
+            if (!currentImageDataUrl) fileInput.el.click();
+        })
         .addInto(previewCard);
 
     const metaDimEl = txt("—").class("pun-pill");
@@ -173,12 +196,29 @@ export function createImageSearchStudio(
         reader.readAsDataURL(file);
     }
 
+    window.addEventListener("paste", (e) => {
+        if (!isVisible()) return;
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const item of Array.from(items)) {
+            if (item.type.startsWith("image/")) {
+                const file = item.getAsFile();
+                if (file) {
+                    e.preventDefault();
+                    loadFileAsImage(file);
+                    return;
+                }
+            }
+        }
+    });
+
     // Right: status banner + engine cards grid
     const rightCol = view("y").class("ims_right_col").addInto(bodyGrid);
 
     const statusBanner = view("y")
         .class("pun-card", "ims_status_banner")
         .addInto(rightCol);
+    attachSpotlight(statusBanner.el);
     const statusTopRow = view("x")
         .style({
             alignItems: "center",
@@ -254,12 +294,25 @@ export function createImageSearchStudio(
                 store.set("以图搜图.引擎", meta.id);
                 void runEngine(meta.id, false);
             });
+        attachSpotlight(card.el);
         engineCardMap.set(meta.id, { card, badge });
         engineGrid.add(card);
     }
 
     function updateImageMeta(dataUrl: string) {
+        if (!dataUrl) {
+            previewImg.el.removeAttribute("src");
+            previewImg.style({ display: "none" });
+            emptyPrompt.style({ display: "flex" });
+            previewStage.el.classList.add("empty");
+            metaDimEl.sv(t("待选图"));
+            metaSizeEl.sv(t("支持粘贴"));
+            return;
+        }
         previewImg.el.src = dataUrl;
+        previewImg.style({ display: "block" });
+        emptyPrompt.style({ display: "none" });
+        previewStage.el.classList.remove("empty");
         const base64Len = dataUrl.includes(",")
             ? dataUrl.length - dataUrl.indexOf(",") - 1
             : dataUrl.length;
@@ -520,9 +573,31 @@ export function createImageSearchStudio(
         await runEngine(engine, autoFallback);
     }
 
+    function openEmpty(engineRaw?: string) {
+        currentImageDataUrl = "";
+        cachedPublicUrl = undefined;
+        lastResult = null;
+        engineResults.clear();
+        currentEngine = normalizeImageSearchEngine(
+            engineRaw || store.get("以图搜图.引擎"),
+        );
+        updateImageMeta("");
+        syncEngineCards();
+        setBanner(
+            "idle",
+            t("等待导入图片"),
+            t(
+                "拖入本地图片、点击左侧选图或直接按 Ctrl+V 粘贴剪贴板图片即可秒搜",
+            ),
+            0,
+        );
+        show();
+    }
+
     return {
         el: root,
         startSearch,
+        openEmpty,
         show,
         hide,
         isVisible,

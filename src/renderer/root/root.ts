@@ -192,6 +192,28 @@ function showToast(
     }, durationMs);
 }
 
+function attachSpotlight(el: HTMLElement) {
+    el.classList.add("pun-spotlight");
+    let rafId = 0;
+    let lastX = 0;
+    let lastY = 0;
+    el.addEventListener(
+        "pointermove",
+        (e) => {
+            lastX = e.clientX;
+            lastY = e.clientY;
+            if (rafId) return;
+            rafId = requestAnimationFrame(() => {
+                rafId = 0;
+                const r = el.getBoundingClientRect();
+                el.style.setProperty("--mx", `${Math.round(lastX - r.left)}px`);
+                el.style.setProperty("--my", `${Math.round(lastY - r.top)}px`);
+            });
+        },
+        { passive: true },
+    );
+}
+
 function getImgUrl(name: RawIconType) {
     return new URL(`../assets/icons/${name}`, import.meta.url).href;
 }
@@ -330,6 +352,7 @@ function cssVarR(x: string) {
 }
 
 export {
+    attachSpotlight,
     Class,
     cssColor,
     cssVar,
